@@ -1,1925 +1,3303 @@
 # 🚀 LangGraph Workflows & Agents
-## A Practical, Detailed Guide to Workflow Patterns, Multi-Agent Systems, Tool Calling, and Production Design
 
-> **A deep, ready-to-use reference for understanding how LangGraph workflows and agents are designed, composed, executed, and scaled.**
+<img width="1983" height="793" alt="LangGraph Workflows and Agents" src="https://github.com/user-attachments/assets/5c89e62c-cb4f-429f-bec7-c85c9a3490e9" />
+
+## A Practical, Detailed Guide to Workflows, Agents, State, Tools, Multi-Agent Systems, and Production Design
+
+> A practical, production-oriented reference for understanding how LangGraph workflows and agents are designed, composed, executed, observed, persisted, and scaled.
 
 ---
 
 ## 📚 Documentation Index
 
-> Fetch the complete documentation index at: https://docs.langchain.com/llms.txt  
-> Use this file to discover all available pages before exploring further.
+The official LangChain documentation provides a dedicated LangGraph documentation section for Python.
+
+For the latest documentation index, see:
+
+* `https://docs.langchain.com/llms.txt`
+
+> **Important:** LangGraph evolves quickly. Always verify API details against the current official documentation before upgrading a production application.
 
 ---
 
 # 🧭 Table of Contents
 
-- [1. Workflows and Agents](#workflows-and-agents)
-- [2. How to Think About Workflow Design](#how-to-think-about-workflow-design)
-- [3. Setup](#setup)
-- [4. LLMs and Augmentations](#llms-and-augmentations)
-- [5. Prompt Chaining](#prompt-chaining)
-- [6. Parallelization](#parallelization)
-- [7. Routing](#routing)
-- [8. Orchestrator-Worker](#orchestrator-worker)
-- [9. Evaluator-Optimizer](#evaluator-optimizer)
-- [10. Agents](#agents)
-- [11. ToolNode](#toolnode)
-- [12. Pattern Selection Guide](#pattern-selection-guide)
-- [13. Production Design Checklist](#production-design-checklist)
-- [14. Common Mistakes and Anti-Patterns](#common-mistakes-and-anti-patterns)
+* [1. Workflows and Agents](#1-workflows-and-agents)
+* [2. The LangGraph Mental Model](#2-the-langgraph-mental-model)
+* [3. Core LangGraph Building Blocks](#3-core-langgraph-building-blocks)
+* [4. State and State Schemas](#4-state-and-state-schemas)
+* [5. Nodes](#5-nodes)
+* [6. Edges and Control Flow](#6-edges-and-control-flow)
+* [7. Setup](#7-setup)
+* [8. LLMs and Augmentations](#8-llms-and-augmentations)
+* [9. Structured Output](#9-structured-output)
+* [10. Tool Calling](#10-tool-calling)
+* [11. Prompt Chaining](#11-prompt-chaining)
+* [12. Parallelization](#12-parallelization)
+* [13. Routing](#13-routing)
+* [14. Orchestrator-Worker](#14-orchestrator-worker)
+* [15. Evaluator-Optimizer](#15-evaluator-optimizer)
+* [16. Agents](#16-agents)
+* [17. ToolNode](#17-toolnode)
+* [18. Send API](#18-send-api)
+* [19. Command API](#19-command-api)
+* [20. Persistence and Checkpointing](#20-persistence-and-checkpointing)
+* [21. Memory and Context](#21-memory-and-context)
+* [22. Human-in-the-Loop and Interrupts](#22-human-in-the-loop-and-interrupts)
+* [23. Streaming](#23-streaming)
+* [24. Subgraphs](#24-subgraphs)
+* [25. Error Handling and Retries](#25-error-handling-and-retries)
+* [26. Observability and Debugging](#26-observability-and-debugging)
+* [27. Evaluation](#27-evaluation)
+* [28. Multi-Agent Architecture](#28-multi-agent-architecture)
+* [29. Production Architecture](#29-production-architecture)
+* [30. Pattern Selection Guide](#30-pattern-selection-guide)
+* [31. Common Mistakes and Anti-Patterns](#31-common-mistakes-and-anti-patterns)
+* [32. Practical QA Automation Architecture](#32-practical-qa-automation-architecture)
+* [33. End-to-End Example](#33-end-to-end-example)
+* [34. Production Checklist](#34-production-checklist)
+* [35. Final Takeaway](#35-final-takeaway)
 
 ---
 
-# Workflows and agents
+# 1. Workflows and Agents
 
-This guide reviews common workflow and agent patterns.
+LangGraph is useful when an AI application needs more control than a single LLM call.
 
-## 🎯 The Core Difference
+The most important distinction is between a **workflow** and an **agent**.
 
-A useful starting point is to separate **control flow** from **decision making**:
+## 🎯 Workflow vs Agent
 
-| Characteristic | Workflow | Agent |
-|---|---|---|
-| Execution path | Mostly predetermined | Dynamic |
-| Next step | Defined by application logic | Often selected by the model |
-| Tool usage | Explicitly designed | Model can decide among available tools |
-| Predictability | High | Lower |
-| Flexibility | Lower | Higher |
-| Debugging | Usually simpler | Can require tracing and observability |
-| Best for | Stable, repeatable processes | Open-ended or unpredictable tasks |
+| Characteristic  | Workflow                      | Agent                                            |
+| --------------- | ----------------------------- | ------------------------------------------------ |
+| Execution path  | Mostly predetermined          | Dynamic                                          |
+| Next step       | Application logic             | Often selected dynamically                       |
+| Tool usage      | Explicitly controlled         | Model can choose from available tools            |
+| Predictability  | High                          | Lower                                            |
+| Debugging       | Usually simpler               | Requires stronger tracing                        |
+| Cost control    | Easier                        | More difficult                                   |
+| Security        | Easier to constrain           | Requires stronger guardrails                     |
+| Best for        | Repeatable processes          | Open-ended tasks                                 |
+| Typical example | Requirement → Test → Validate | Failure → Investigate → Choose diagnostic action |
 
-### Workflows
+## Workflows
 
-A workflow has a structure that the application designer largely knows in advance. The system may contain LLM calls, tools, validation, retries, and conditional branches, but the possible execution architecture is intentionally controlled.
-
-### Agents
-
-An agent gives the LLM more autonomy. The model can inspect the current situation, choose an action or tool, observe the result, and decide what to do next. This makes agents useful when the exact sequence of steps cannot be fully predicted before execution.
-
-## 🧠 A Simple Mental Model
+A workflow has an execution structure that the application designer largely understands in advance.
 
 ```text
-WORKFLOW
 Input
   ↓
-Known Step A
+Step A
   ↓
-Known Step B
+Step B
   ↓
-Conditional Check
+Validation
   ├── Pass → Finish
-  └── Fail → Known Recovery Step
+  └── Fail → Recovery
 ```
 
-```text
-AGENT
-Input
-  ↓
-LLM decides next action
-  ↓
-Use Tool / Think / Respond
-  ↓
-Observe result
-  ↓
-LLM decides next action
-  ↓
-Repeat until completion
-```
+The workflow can still contain LLM calls.
 
-## ⚠️ Important Design Principle
-
-**Do not use an agent simply because a workflow contains an LLM.**
-
-An LLM-powered system can still be a deterministic workflow. If you already know the sequence of operations, explicit workflow control is often easier to test, debug, secure, and optimize.
-
-Use more autonomy only when the problem genuinely benefits from dynamic decision making.
-
-<img src="https://mintcdn.com/langchain-5e9cc07a/-_xGPoyjhyiDWTPJ/oss/images/agent_workflow.png?fit=max&auto=format&n=-_xGPoyjhyiDWTPJ&q=85&s=c217c9ef517ee556cae3fc928a21dc55" alt="Agent Workflow" width="4572" height="2047" data-path="oss/images/agent_workflow.png" />
-
-## 🔍 What the Architecture Image Represents
-
-The workflow/agent architecture can be understood as a sequence of **state transitions**.
-
-Each node receives the information available at that point, performs one responsibility, and returns an update. Edges determine which node receives control next. Conditional edges introduce branching, while loops allow a system to retry, evaluate, call tools, or continue reasoning.
-
-A strong graph design therefore starts with three questions:
-
-1. **What information must exist in state?**
-2. **What responsibility belongs to each node?**
-3. **What conditions determine the next transition?**
-
-LangGraph supports workflow and agent systems with capabilities such as persistence, streaming, debugging, and deployment.
+The presence of an LLM does **not** automatically make a system an agent.
 
 ---
 
-# 🧠 How to Think About Workflow Design
+## Agents
 
-Before choosing a pattern, define the problem in terms of **inputs, state, decisions, actions, and completion conditions**.
+An agent gives the model more responsibility for determining what action should happen next.
 
-## 1. Define the Input
+```text
+User Request
+     ↓
+    LLM
+     ↓
+Need a tool?
+ ┌───┴────┐
+ No       Yes
+ ↓         ↓
+Answer   Execute Tool
+           ↓
+       Observe Result
+           ↓
+          LLM
+           ↺
+```
 
-Examples:
+An agent is useful when the exact sequence of actions cannot be reliably predetermined.
 
-- A user question
-- A document
-- A support request
-- A test requirement
-- A failure log
-- A structured event
+---
 
-## 2. Define the Shared State
+## 🧠 Core Design Principle
 
-State is the information that must survive between steps.
+> **Use the smallest amount of autonomy that solves the problem.**
+
+If you already know the execution path, use a workflow.
+
+If the next action depends on evidence discovered during execution, an agent may be appropriate.
+
+---
+
+<img src="https://mintcdn.com/langchain-5e9cc07a/-_xGPoyjhyiDWTPJ/oss/images/agent_workflow.png?fit=max&auto=format&n=-_xGPoyjhyiDWTPJ&q=85&s=c217c9ef517ee556cae3fc928a21dc55" alt="Agent Workflow" width="4572" height="2047" />
+
+## 🔍 What the Architecture Represents
+
+At a conceptual level, a LangGraph application can be viewed as a state-transition system.
+
+```text
+             ┌───────────────┐
+             │     State     │
+             └───────┬───────┘
+                     │
+                     ▼
+                  Node A
+                     │
+                     ▼
+               Decision
+              ┌──────┴──────┐
+              ▼             ▼
+           Node B         Node C
+              │             │
+              └──────┬──────┘
+                     ▼
+                  Node D
+                     │
+                     ▼
+                    END
+```
+
+Each node performs a responsibility.
+
+Edges determine what happens next.
+
+State carries the information required by later nodes.
+
+---
+
+# 2. The LangGraph Mental Model
+
+The easiest way to understand LangGraph is:
+
+> **LangGraph = State + Nodes + Edges + Execution**
+
+A graph describes **how execution moves**.
+
+State describes **what information moves through the graph**.
+
+---
+
+## 2.1 State
+
+State represents the information available to the graph.
+
+Example:
 
 ```text
 State
-├── input
-├── intermediate_results
-├── routing_decision
+├── user_input
+├── messages
+├── route
+├── retrieved_documents
+├── generated_test
+├── validation_result
 ├── tool_results
-├── validation_feedback
 ├── retry_count
 └── final_output
 ```
 
-Avoid putting every possible value into state. Store information that downstream nodes genuinely need.
-
-## 3. Define Node Responsibilities
-
-A node should ideally have one clear responsibility:
-
-- Generate
-- Validate
-- Route
-- Retrieve
-- Call a tool
-- Aggregate
-- Evaluate
-- Synthesize
-
-Avoid nodes that silently perform many unrelated responsibilities.
-
-## 4. Define Transitions
-
-Ask:
-
-- What always happens next?
-- What depends on a condition?
-- What can run in parallel?
-- What may repeat?
-- What ends execution?
-
-## 5. Define Failure Behaviour
-
-Every production graph should consider:
-
-- Invalid model output
-- Tool failures
-- Timeouts
-- Empty results
-- Retry limits
-- Infinite loops
-- Partial failures
-- Human intervention
-
 ---
 
+## 2.2 Nodes
 
----
+Nodes perform work.
 
-> ## Documentation Index
-> Fetch the complete documentation index at: https://docs.langchain.com/llms.txt
-> Use this file to discover all available pages before exploring further.
-
-# Workflows and agents
-
-This guide reviews common workflow and agent patterns.
-
-* Workflows have predetermined code paths and are designed to operate in a certain order.
-* Agents are dynamic and define their own processes and tool usage.
-
-<img src="https://mintcdn.com/langchain-5e9cc07a/-_xGPoyjhyiDWTPJ/oss/images/agent_workflow.png?fit=max&auto=format&n=-_xGPoyjhyiDWTPJ&q=85&s=c217c9ef517ee556cae3fc928a21dc55" alt="Agent Workflow" width="4572" height="2047" data-path="oss/images/agent_workflow.png" />
-
-LangGraph offers several benefits when building agents and workflows, including [persistence](/oss/python/langgraph/persistence), [streaming](/oss/python/langgraph/streaming), and support for debugging as well as [deployment](/oss/python/langgraph/deploy).
-
-<Tip>
-  Trace and compare these workflow patterns with [LangSmith](https://smith.langchain.com?utm_source=docs\&utm_medium=cta\&utm_campaign=langsmith-signup\&utm_content=oss-langgraph-workflows-agents). Follow the [tracing quickstart](/langsmith/trace-with-langgraph) to see how data flows through each step. We recommend you also set up [LangSmith Engine](/langsmith/engine) which monitors your traces, detects issues, and proposes fixes.
-</Tip>
-
-## Setup
-
-### 🛠️ What You Need Before Building
-
-A workflow or agent requires an LLM integration appropriate for the capabilities your graph needs. The examples below use a chat model that supports capabilities such as structured outputs and tool calling.
-
-Before running examples, ensure you understand:
-
-- **Model configuration** — which provider and model are being used.
-- **Authentication** — how credentials are supplied.
-- **Structured output support** — useful when the application needs predictable fields.
-- **Tool calling support** — required when the model must request application actions.
-- **Environment management** — secrets should not be hard-coded into source files.
-
-### Recommended Execution Flow
+Examples:
 
 ```text
-Install dependencies
-        ↓
-Configure credentials
-        ↓
-Initialize model
-        ↓
-Define state/schema
-        ↓
-Define nodes or tasks
-        ↓
-Connect execution paths
-        ↓
-Compile
-        ↓
-Invoke / Stream / Debug
+retrieve_documents
+generate_test
+validate_test
+call_database
+execute_test
+analyze_failure
+generate_report
 ```
 
+A good node normally has one clear responsibility.
 
+---
 
-To build a workflow or agent, you can use [any chat model](/oss/python/integrations/chat) that supports structured outputs and tool calling. The following example uses Anthropic:
+## 2.3 Edges
 
-1. Install dependencies:
+Edges define transitions.
 
-```bash theme={"theme":{"light":"catppuccin-latte","dark":"catppuccin-mocha"}}
-pip install langchain_core langchain-anthropic langgraph
+```text
+START
+  ↓
+retrieve
+  ↓
+generate
+  ↓
+validate
+  ↓
+END
 ```
 
-2. Initialize the LLM:
+---
 
-```python theme={"theme":{"light":"catppuccin-latte","dark":"catppuccin-mocha"}}
+## 2.4 Conditional Edges
+
+Conditional edges allow decisions.
+
+```text
+validate
+   ↓
+ ┌─┴────────┐
+ ▼          ▼
+PASS       FAIL
+ │          │
+ ▼          ▼
+END       regenerate
+             │
+             └──────→ validate
+```
+
+---
+
+## 2.5 Graph Execution
+
+The complete mental model becomes:
+
+```text
+                ┌──────────────┐
+                │     Input    │
+                └──────┬───────┘
+                       ↓
+                ┌──────────────┐
+                │     State    │
+                └──────┬───────┘
+                       ↓
+                  ┌─────────┐
+                  │  Node   │
+                  └────┬────┘
+                       ↓
+                  ┌─────────┐
+                  │  Edge   │
+                  └────┬────┘
+                       ↓
+                  Next Node
+                       ↓
+                      ...
+                       ↓
+                     END
+```
+
+---
+
+# 3. Core LangGraph Building Blocks
+
+The most important concepts are:
+
+| Concept          | Purpose                                            |
+| ---------------- | -------------------------------------------------- |
+| `StateGraph`     | Defines a graph around shared state                |
+| State schema     | Defines the shape of state                         |
+| Node             | Performs work                                      |
+| Edge             | Connects execution paths                           |
+| `START`          | Graph entry point                                  |
+| `END`            | Graph termination                                  |
+| Conditional edge | Chooses the next path                              |
+| Reducer          | Controls how concurrent state updates are combined |
+| `Send`           | Dynamically creates worker executions              |
+| `Command`        | Combines state updates and navigation              |
+| Checkpointer     | Persists graph execution state                     |
+| Interrupt        | Pauses execution for external/human input          |
+| Subgraph         | Composes one graph inside another                  |
+| `ToolNode`       | Executes model-requested tools                     |
+
+---
+
+# 4. State and State Schemas
+
+State is one of the most important parts of LangGraph.
+
+A graph should not treat state as an arbitrary dictionary containing everything.
+
+Instead, define a deliberate schema.
+
+---
+
+## 4.1 Typed State
+
+```python
+from typing_extensions import TypedDict
+
+
+class State(TypedDict):
+    user_input: str
+    route: str
+    result: str
+```
+
+Now every node understands the expected structure.
+
+---
+
+## 4.2 State Updates
+
+A node normally returns only the fields it needs to update.
+
+```python
+def classify(state: State):
+    return {
+        "route": "api"
+    }
+```
+
+It does not need to recreate the entire state.
+
+---
+
+## 4.3 Minimal State Principle
+
+Avoid this:
+
+```text
+State
+├── everything_from_user
+├── every_prompt
+├── every_tool_result
+├── every_document
+├── every_intermediate_message
+├── every_debug_log
+├── every_model_response
+└── everything_else
+```
+
+Prefer:
+
+```text
+State
+├── input
+├── relevant_decision
+├── required_context
+├── important_result
+└── execution_metadata
+```
+
+Minimal state improves:
+
+* readability
+* debugging
+* memory usage
+* persistence size
+* testability
+* security
+
+---
+
+## 4.4 Reducers
+
+Reducers become important when multiple nodes update the same state field.
+
+For example:
+
+```python
+from typing import Annotated
+import operator
+
+
+class State(TypedDict):
+    results: Annotated[list[str], operator.add]
+```
+
+Multiple workers can now contribute results:
+
+```text
+Worker A → ["result A"]
+Worker B → ["result B"]
+Worker C → ["result C"]
+
+Combined:
+["result A", "result B", "result C"]
+```
+
+Without an appropriate reducer, concurrent writes to the same state field can conflict.
+
+---
+
+## 4.5 State vs Context
+
+A useful distinction is:
+
+### State
+
+Information that changes as the graph executes.
+
+Examples:
+
+```text
+messages
+route
+retrieved_documents
+generated_test
+validation_result
+```
+
+### Context
+
+Run-scoped information that should be available to nodes/tools but is not necessarily part of evolving graph state.
+
+Examples:
+
+```text
+user_id
+organization_id
+request metadata
+configuration
+runtime dependencies
+```
+
+This separation helps prevent application metadata from being mixed into business state.
+
+---
+
+# 5. Nodes
+
+A node represents one unit of work.
+
+Example:
+
+```python
+def generate_test(state: State):
+    result = llm.invoke(
+        f"Generate a Playwright test for: {state['user_input']}"
+    )
+
+    return {
+        "result": result.content
+    }
+```
+
+---
+
+## Good Node Design
+
+A good node should have:
+
+* clear inputs
+* clear responsibility
+* clear outputs
+* predictable failure behaviour
+
+Example:
+
+```text
+retrieve_requirements()
+        ↓
+generate_test()
+        ↓
+validate_test()
+        ↓
+save_test()
+```
+
+Avoid:
+
+```python
+def do_everything(state):
+    # retrieve
+    # classify
+    # generate
+    # validate
+    # execute
+    # retry
+    # report
+```
+
+Large nodes become difficult to test and observe.
+
+---
+
+# 6. Edges and Control Flow
+
+## 6.1 Normal Edge
+
+```python
+builder.add_edge("generate", "validate")
+```
+
+Meaning:
+
+```text
+generate
+   ↓
+validate
+```
+
+---
+
+## 6.2 Entry Point
+
+```python
+builder.add_edge(START, "generate")
+```
+
+---
+
+## 6.3 End
+
+```python
+builder.add_edge("validate", END)
+```
+
+---
+
+## 6.4 Conditional Edge
+
+```python
+def route(state):
+    if state["valid"]:
+        return "success"
+
+    return "retry"
+```
+
+Then:
+
+```python
+builder.add_conditional_edges(
+    "validate",
+    route,
+    {
+        "success": "save",
+        "retry": "generate",
+    },
+)
+```
+
+Architecture:
+
+```text
+             validate
+                │
+        ┌───────┴───────┐
+        ▼               ▼
+      success          retry
+        │               │
+        ▼               ▼
+       save          generate
+```
+
+---
+
+# 7. Setup
+
+Install the required packages for the model provider and LangGraph.
+
+Example:
+
+```bash
+pip install -U langgraph langchain-core langchain-anthropic
+```
+
+---
+
+## Configure Credentials
+
+Never hard-code API keys.
+
+```python
 import os
 import getpass
 
+
+def set_env(name: str):
+    if not os.environ.get(name):
+        os.environ[name] = getpass.getpass(
+            f"Enter {name}: "
+        )
+
+
+set_env("ANTHROPIC_API_KEY")
+```
+
+---
+
+## Initialize the Model
+
+```python
 from langchain_anthropic import ChatAnthropic
 
-def _set_env(var: str):
-    if not os.environ.get(var):
-        os.environ[var] = getpass.getpass(f"{var}: ")
 
-
-_set_env("ANTHROPIC_API_KEY")
-
-llm = ChatAnthropic(model="claude-sonnet-4-6")
+llm = ChatAnthropic(
+    model="claude-sonnet-4-6"
+)
 ```
 
-## LLMs and augmentations
+> Model names and provider APIs change over time. Verify the current supported model name in your provider's documentation before running the example.
 
-### 🧩 Why an LLM Alone Is Usually Not Enough
+---
 
-A base LLM receives input and generates output. Agentic applications become more capable when the model is augmented with application-level capabilities.
-
-The main augmentations in this reference are:
-
-| Augmentation | Purpose |
-|---|---|
-| Structured output | Return predictable data that application code can consume |
-| Tool calling | Allow the model to request external actions |
-| Memory/state | Preserve relevant information across steps |
-| Graph control flow | Coordinate multi-step execution |
-
-### A Useful Architecture
+## Recommended Development Flow
 
 ```text
-User Input
-    ↓
-LLM
-    ├── Structured Output
-    ├── Tool Calls
-    ├── State / Memory
-    └── Graph-Controlled Next Steps
+Install Dependencies
+        ↓
+Configure Credentials
+        ↓
+Initialize Model
+        ↓
+Define State
+        ↓
+Define Nodes
+        ↓
+Define Edges
+        ↓
+Compile Graph
+        ↓
+Invoke / Stream
+        ↓
+Trace / Evaluate
+        ↓
+Deploy
 ```
 
-The key design idea is that the graph remains responsible for application orchestration while the LLM contributes reasoning or generation where appropriate.
+---
+
+# 8. LLMs and Augmentations
+
+An LLM by itself is only one component.
+
+Agentic applications usually augment the model with additional capabilities.
+
+| Augmentation      | Purpose                                           |
+| ----------------- | ------------------------------------------------- |
+| Structured output | Predictable machine-readable results              |
+| Tool calling      | External actions                                  |
+| State             | Preserve execution information                    |
+| Memory            | Preserve relevant information across interactions |
+| Graph control     | Deterministic application orchestration           |
+| Retrieval         | Bring external knowledge into context             |
+| Human approval    | Control sensitive actions                         |
+
+Architecture:
+
+```text
+                    ┌────────────────────┐
+                    │        LLM         │
+                    └─────────┬──────────┘
+                              │
+       ┌──────────────┬───────┼────────┬──────────────┐
+       ▼              ▼       ▼        ▼              ▼
+ Structured        Tools    State    Retrieval      Memory
+ Output
+       │              │       │        │              │
+       └──────────────┴───────┴────────┴──────────────┘
+                              │
+                              ▼
+                       LangGraph Control
+```
+
+---
+
+# 9. Structured Output
+
+When application logic depends on model output, free-form text is fragile.
+
+Instead of:
+
+```text
+"Probably route this to API testing."
+```
+
+prefer:
+
+```json
+{
+  "route": "api"
+}
+```
+
+---
+
+## Example
+
+```python
+from pydantic import BaseModel
+from typing_extensions import Literal
 
 
-
-Workflows and agentic systems are based on LLMs and the various augmentations you add to them. [Tool calling](/oss/python/langchain/tools), [structured outputs](/oss/python/langchain/structured-output), and [short term memory](/oss/python/langchain/short-term-memory) are a few options for tailoring LLMs to your needs.
-
-<img src="https://mintcdn.com/langchain-5e9cc07a/-_xGPoyjhyiDWTPJ/oss/images/augmented_llm.png?fit=max&auto=format&n=-_xGPoyjhyiDWTPJ&q=85&s=7ea9656f46649b3ebac19e8309ae9006" alt="LLM augmentations" width="1152" height="778" data-path="oss/images/augmented_llm.png" />
-
-```python theme={"theme":{"light":"catppuccin-latte","dark":"catppuccin-mocha"}}
-# Schema for structured output
-from pydantic import BaseModel, Field
+class RouteDecision(BaseModel):
+    route: Literal[
+        "ui",
+        "api",
+        "database"
+    ]
 
 
-class SearchQuery(BaseModel):
-    search_query: str = Field(None, description="Query that is optimized web search.")
-    justification: str = Field(
-        None, description="Why this query is relevant to the user's request."
-    )
+router = llm.with_structured_output(
+    RouteDecision
+)
+```
+
+Then:
+
+```python
+decision = router.invoke(
+    "The requirement validates a REST endpoint."
+)
+
+print(decision.route)
+```
+
+Structured output is particularly useful for:
+
+* routing
+* classification
+* validation
+* evaluation
+* planning
+* extracting metadata
+
+---
+
+# 10. Tool Calling
+
+Tools allow an LLM to request actions outside the model.
+
+Example:
+
+```python
+from langchain.tools import tool
 
 
-# Augment the LLM with schema for structured output
-structured_llm = llm.with_structured_output(SearchQuery)
-
-# Invoke the augmented LLM
-output = structured_llm.invoke("How does Calcium CT score relate to high cholesterol?")
-
-# Define a tool
+@tool
 def multiply(a: int, b: int) -> int:
+    """Multiply two integers."""
     return a * b
 
-# Augment the LLM with tools
-llm_with_tools = llm.bind_tools([multiply])
 
-# Invoke the LLM with input that triggers the tool call
-msg = llm_with_tools.invoke("What is 2 times 3?")
-
-# Get the tool call
-msg.tool_calls
+@tool
+def add(a: int, b: int) -> int:
+    """Add two integers."""
+    return a + b
 ```
 
-## Prompt chaining
+Bind them:
 
-### 🔗 What Problem Does Prompt Chaining Solve?
+```python
+tools = [add, multiply]
 
-Prompt chaining is appropriate when a complex task can be decomposed into a sequence of smaller transformations.
+llm_with_tools = llm.bind_tools(tools)
+```
 
-Instead of asking one model call to perform everything at once:
+The model can now produce tool calls when appropriate.
+
+---
+
+## Tool Calling Architecture
 
 ```text
-Input → One Large Prompt → Final Result
+User
+ ↓
+LLM
+ ↓
+Tool Required?
+ ├── No → Final Answer
+ │
+ └── Yes
+       ↓
+    Tool Call
+       ↓
+   Tool Execution
+       ↓
+    Tool Result
+       ↓
+      LLM
+       ↓
+   Final Answer
 ```
 
-you use controlled stages:
+---
+
+# 11. Prompt Chaining
+
+Prompt chaining is useful when a complex task can be decomposed into sequential transformations.
 
 ```text
 Input
   ↓
 Generate
   ↓
-Check
+Validate
   ↓
-Improve if needed
+Improve
   ↓
 Polish
   ↓
-Final Result
+Output
 ```
 
-### When to Use It
+---
 
-Use prompt chaining when:
+## When to Use Prompt Chaining
 
-- Steps have a natural order.
-- Later stages depend on earlier outputs.
-- Intermediate outputs can be checked.
-- You want clear observability for each transformation.
+Use it when:
 
-### Design Considerations
+* order matters
+* later steps depend on earlier results
+* intermediate results can be validated
+* each step has a clear responsibility
 
-Each stage should have:
+---
 
-1. A clear input.
-2. A clear output.
-3. A narrowly defined responsibility.
-4. An explicit success or failure condition where possible.
+## Example
 
-The examples below demonstrate both Graph API and Functional API styles.
-
+```python
+from typing_extensions import TypedDict
+from langgraph.graph import StateGraph, START, END
 
 
-Prompt chaining is when each LLM call processes the output of the previous call. It's often used for performing well-defined tasks that can be broken down into smaller, verifiable steps. Some examples include:
-
-* Translating documents into different languages
-* Verifying generated content for consistency
-
-<img src="https://mintcdn.com/langchain-5e9cc07a/dL5Sn6Cmy9pwtY0V/oss/images/prompt_chain.png?fit=max&auto=format&n=dL5Sn6Cmy9pwtY0V&q=85&s=762dec147c31b8dc6ebb0857e236fc1f" alt="Prompt chaining" width="1412" height="444" data-path="oss/images/prompt_chain.png" />
-
-<CodeGroup>
-  ```python Graph API theme={"theme":{"light":"catppuccin-latte","dark":"catppuccin-mocha"}}
-  from typing_extensions import TypedDict
-  from langgraph.graph import StateGraph, START, END
-  from IPython.display import Image, display
+class State(TypedDict):
+    topic: str
+    draft: str
+    final: str
 
 
-  # Graph state
-  class State(TypedDict):
-      topic: str
-      joke: str
-      improved_joke: str
-      final_joke: str
+def generate(state: State):
+    response = llm.invoke(
+        f"Write a short explanation about {state['topic']}."
+    )
+
+    return {
+        "draft": response.content
+    }
 
 
-  # Nodes
-  def generate_joke(state: State):
-      """First LLM call to generate initial joke"""
+def improve(state: State):
+    response = llm.invoke(
+        f"Improve this explanation:\n\n{state['draft']}"
+    )
 
-      msg = llm.invoke(f"Write a short joke about {state['topic']}")
-      return {"joke": msg.content}
-
-
-  def check_punchline(state: State):
-      """Gate function to check if the joke has a punchline"""
-
-      # Simple check - does the joke contain "?" or "!"
-      if "?" in state["joke"] or "!" in state["joke"]:
-          return "Pass"
-      return "Fail"
+    return {
+        "final": response.content
+    }
 
 
-  def improve_joke(state: State):
-      """Second LLM call to improve the joke"""
+builder = StateGraph(State)
 
-      msg = llm.invoke(f"Make this joke funnier by adding wordplay: {state['joke']}")
-      return {"improved_joke": msg.content}
+builder.add_node("generate", generate)
+builder.add_node("improve", improve)
 
+builder.add_edge(START, "generate")
+builder.add_edge("generate", "improve")
+builder.add_edge("improve", END)
 
-  def polish_joke(state: State):
-      """Third LLM call for final polish"""
-      msg = llm.invoke(f"Add a surprising twist to this joke: {state['improved_joke']}")
-      return {"final_joke": msg.content}
+graph = builder.compile()
 
+result = graph.invoke({
+    "topic": "LangGraph"
+})
 
-  # Build workflow
-  workflow = StateGraph(State)
+print(result["final"])
+```
 
-  # Add nodes
-  workflow.add_node("generate_joke", generate_joke)
-  workflow.add_node("improve_joke", improve_joke)
-  workflow.add_node("polish_joke", polish_joke)
+---
 
-  # Add edges to connect nodes
-  workflow.add_edge(START, "generate_joke")
-  workflow.add_conditional_edges(
-      "generate_joke", check_punchline, {"Fail": "improve_joke", "Pass": END}
-  )
-  workflow.add_edge("improve_joke", "polish_joke")
-  workflow.add_edge("polish_joke", END)
+## Chaining Architecture
 
-  # Compile
-  chain = workflow.compile()
+<img src="https://mintcdn.com/langchain-5e9cc07a/dL5Sn6Cmy9pwtY0V/oss/images/prompt_chain.png?fit=max&auto=format&n=dL5Sn6Cmy9pwtY0V&q=85&s=762dec147c31b8dc6ebb0857e236fc1f" alt="Prompt chaining" width="1412" height="444" />
 
-  # Show workflow
-  display(Image(chain.get_graph().draw_mermaid_png()))
+---
 
-  # Invoke
-  state = chain.invoke({"topic": "cats"})
-  print("Initial joke:")
-  print(state["joke"])
-  print("\n--- --- ---\n")
-  if "improved_joke" in state:
-      print("Improved joke:")
-      print(state["improved_joke"])
-      print("\n--- --- ---\n")
+# 12. Parallelization
 
-      print("Final joke:")
-      print(state["final_joke"])
-  else:
-      print("Final joke:")
-      print(state["joke"])
-  ```
+Parallelization is useful when tasks are independent.
 
-  ```python Functional API theme={"theme":{"light":"catppuccin-latte","dark":"catppuccin-mocha"}}
-  from langgraph.func import entrypoint, task
-
-
-  # Tasks
-  @task
-  def generate_joke(topic: str):
-      """First LLM call to generate initial joke"""
-      msg = llm.invoke(f"Write a short joke about {topic}")
-      return msg.content
-
-
-  def check_punchline(joke: str):
-      """Gate function to check if the joke has a punchline"""
-      # Simple check - does the joke contain "?" or "!"
-      if "?" in joke or "!" in joke:
-          return "Fail"
-
-      return "Pass"
-
-
-  @task
-  def improve_joke(joke: str):
-      """Second LLM call to improve the joke"""
-      msg = llm.invoke(f"Make this joke funnier by adding wordplay: {joke}")
-      return msg.content
-
-
-  @task
-  def polish_joke(joke: str):
-      """Third LLM call for final polish"""
-      msg = llm.invoke(f"Add a surprising twist to this joke: {joke}")
-      return msg.content
-
-
-  @entrypoint()
-  def prompt_chaining_workflow(topic: str):
-      original_joke = generate_joke(topic).result()
-      if check_punchline(original_joke) == "Pass":
-          return original_joke
-
-      improved_joke = improve_joke(original_joke).result()
-      return polish_joke(improved_joke).result()
-
-  # Invoke
-  stream = prompt_chaining_workflow.stream_events("cats", version="v3")
-  for snapshot in stream.values:
-      print(snapshot)
-      print("\n")
-  ```
-</CodeGroup>
-
-## Parallelization
-
-### ⚡ What Problem Does Parallelization Solve?
-
-Parallelization reduces end-to-end latency when multiple tasks are independent.
-
-Instead of:
+Sequential:
 
 ```text
-Task A → Task B → Task C
+A → B → C
 ```
 
-you can use a fan-out/fan-in design:
+Parallel:
 
 ```text
-             ┌→ Task A ─┐
-Input ───────┼→ Task B ─┼→ Aggregate → Output
-             └→ Task C ─┘
+          ┌→ A ─┐
+Input ────┼→ B ─┼→ Aggregate
+          └→ C ─┘
 ```
 
-### Two Common Forms
+---
 
-#### 1. Independent Subtasks
+## When to Parallelize
 
-Different workers process different parts of the problem simultaneously.
+Good candidates:
 
-#### 2. Multiple Evaluations
+* independent document analysis
+* multiple test generation tasks
+* multiple validators
+* independent API/UI/database analysis
+* multiple evaluation criteria
 
-The same output is evaluated from different perspectives simultaneously.
+---
 
-### Important Constraint
+## When Not to Parallelize
 
-Parallel execution is only useful when branches do not depend on each other's unfinished results. If Task B requires Task A's output, the operations are sequential.
+Do not parallelize:
 
+```text
+A produces data required by B
+```
 
+as:
 
-With parallelization, LLMs work simultaneously on a task. This is either done by running multiple independent subtasks at the same time, or running the same task multiple times to check for different outputs. Parallelization is commonly used to:
+```text
+A ─┐
+   ├→ B
+B ─┘
+```
 
-* Split up subtasks and run them in parallel, which increases speed
-* Run tasks multiple times to check for different outputs, which increases confidence
+Instead:
 
-Some examples include:
+```text
+A → B
+```
 
-* Running one subtask that processes a document for keywords, and a second subtask to check for formatting errors
-* Running a task multiple times that scores a document for accuracy based on different criteria, like the number of citations, the number of sources used, and the quality of the sources
+---
 
-<img src="https://mintcdn.com/langchain-5e9cc07a/dL5Sn6Cmy9pwtY0V/oss/images/parallelization.png?fit=max&auto=format&n=dL5Sn6Cmy9pwtY0V&q=85&s=8afe3c427d8cede6fed1e4b2a5107b71" alt="parallelization.png" width="1020" height="684" data-path="oss/images/parallelization.png" />
+## Example
 
-<CodeGroup>
-  ```python Graph API theme={"theme":{"light":"catppuccin-latte","dark":"catppuccin-mocha"}}
-  # Graph state
-  class State(TypedDict):
-      topic: str
-      joke: str
-      story: str
-      poem: str
-      combined_output: str
-
-
-  # Nodes
-  def call_llm_1(state: State):
-      """First LLM call to generate initial joke"""
-
-      msg = llm.invoke(f"Write a joke about {state['topic']}")
-      return {"joke": msg.content}
+```python
+from typing_extensions import TypedDict
+from langgraph.graph import StateGraph, START, END
 
 
-  def call_llm_2(state: State):
-      """Second LLM call to generate story"""
-
-      msg = llm.invoke(f"Write a story about {state['topic']}")
-      return {"story": msg.content}
-
-
-  def call_llm_3(state: State):
-      """Third LLM call to generate poem"""
-
-      msg = llm.invoke(f"Write a poem about {state['topic']}")
-      return {"poem": msg.content}
+class State(TypedDict):
+    topic: str
+    joke: str
+    story: str
+    summary: str
 
 
-  def aggregator(state: State):
-      """Combine the joke, story and poem into a single output"""
+def generate_joke(state: State):
+    result = llm.invoke(
+        f"Write a joke about {state['topic']}"
+    )
 
-      combined = f"Here's a story, joke, and poem about {state['topic']}!\n\n"
-      combined += f"STORY:\n{state['story']}\n\n"
-      combined += f"JOKE:\n{state['joke']}\n\n"
-      combined += f"POEM:\n{state['poem']}"
-      return {"combined_output": combined}
-
-
-  # Build workflow
-  parallel_builder = StateGraph(State)
-
-  # Add nodes
-  parallel_builder.add_node("call_llm_1", call_llm_1)
-  parallel_builder.add_node("call_llm_2", call_llm_2)
-  parallel_builder.add_node("call_llm_3", call_llm_3)
-  parallel_builder.add_node("aggregator", aggregator)
-
-  # Add edges to connect nodes
-  parallel_builder.add_edge(START, "call_llm_1")
-  parallel_builder.add_edge(START, "call_llm_2")
-  parallel_builder.add_edge(START, "call_llm_3")
-  parallel_builder.add_edge("call_llm_1", "aggregator")
-  parallel_builder.add_edge("call_llm_2", "aggregator")
-  parallel_builder.add_edge("call_llm_3", "aggregator")
-  parallel_builder.add_edge("aggregator", END)
-  parallel_workflow = parallel_builder.compile()
-
-  # Show workflow
-  display(Image(parallel_workflow.get_graph().draw_mermaid_png()))
-
-  # Invoke
-  state = parallel_workflow.invoke({"topic": "cats"})
-  print(state["combined_output"])
-  ```
-
-  ```python Functional API theme={"theme":{"light":"catppuccin-latte","dark":"catppuccin-mocha"}}
-  @task
-  def call_llm_1(topic: str):
-      """First LLM call to generate initial joke"""
-      msg = llm.invoke(f"Write a joke about {topic}")
-      return msg.content
+    return {
+        "joke": result.content
+    }
 
 
-  @task
-  def call_llm_2(topic: str):
-      """Second LLM call to generate story"""
-      msg = llm.invoke(f"Write a story about {topic}")
-      return msg.content
+def generate_story(state: State):
+    result = llm.invoke(
+        f"Write a short story about {state['topic']}"
+    )
+
+    return {
+        "story": result.content
+    }
 
 
-  @task
-  def call_llm_3(topic):
-      """Third LLM call to generate poem"""
-      msg = llm.invoke(f"Write a poem about {topic}")
-      return msg.content
+def aggregate(state: State):
+    return {
+        "summary": (
+            f"JOKE:\n{state['joke']}\n\n"
+            f"STORY:\n{state['story']}"
+        )
+    }
 
 
-  @task
-  def aggregator(topic, joke, story, poem):
-      """Combine the joke and story into a single output"""
+builder = StateGraph(State)
 
-      combined = f"Here's a story, joke, and poem about {topic}!\n\n"
-      combined += f"STORY:\n{story}\n\n"
-      combined += f"JOKE:\n{joke}\n\n"
-      combined += f"POEM:\n{poem}"
-      return combined
+builder.add_node("joke", generate_joke)
+builder.add_node("story", generate_story)
+builder.add_node("aggregate", aggregate)
 
+builder.add_edge(START, "joke")
+builder.add_edge(START, "story")
 
-  # Build workflow
-  @entrypoint()
-  def parallel_workflow(topic: str):
-      joke_fut = call_llm_1(topic)
-      story_fut = call_llm_2(topic)
-      poem_fut = call_llm_3(topic)
-      return aggregator(
-          topic, joke_fut.result(), story_fut.result(), poem_fut.result()
-      ).result()
+builder.add_edge("joke", "aggregate")
+builder.add_edge("story", "aggregate")
 
-  # Invoke
-  stream = parallel_workflow.stream_events("cats", version="v3")
-  for snapshot in stream.values:
-      print(snapshot)
-      print("\n")
-  ```
-</CodeGroup>
+builder.add_edge("aggregate", END)
 
-## Routing
+graph = builder.compile()
+```
 
-### 🔀 What Problem Does Routing Solve?
+---
 
-Routing chooses a specialized execution path based on the input or current state.
+## Parallelization Architecture
+
+<img src="https://mintcdn.com/langchain-5e9cc07a/dL5Sn6Cmy9pwtY0V/oss/images/parallelization.png?fit=max&auto=format&n=dL5Sn6Cmy9pwtY0V&q=85&s=8afe3c427d8cede6fed1e4b2a5107b71" alt="Parallelization" width="1020" height="684" />
+
+---
+
+# 13. Routing
+
+Routing selects a specialized execution path.
 
 ```text
 Input
   ↓
-Classify / Decide
-  ├── Route A → Specialist A
-  ├── Route B → Specialist B
-  └── Route C → Specialist C
+Router
+ ├── UI
+ ├── API
+ ├── Database
+ └── Security
 ```
 
-### Good Routing Design
+---
 
-A router should return a constrained decision rather than free-form prose whenever possible. Structured output is especially useful because the graph can safely map a known route value to a known node.
+## Structured Router
 
-### Production Considerations
-
-Define behaviour for:
-
-- Unknown categories
-- Low-confidence decisions
-- Invalid structured output
-- Missing routes
-- Fallback handling
+```python
+from pydantic import BaseModel
+from typing_extensions import Literal
 
 
+class Route(BaseModel):
+    step: Literal[
+        "ui",
+        "api",
+        "database"
+    ]
+```
 
-Routing workflows process inputs and then directs them to context-specific tasks. This allows you to define specialized flows for complex tasks. For example, a workflow built to answer product related questions might process the type of question first, and then route the request to specific processes for pricing, refunds, returns, etc.
+Create the router:
 
-<img src="https://mintcdn.com/langchain-5e9cc07a/dL5Sn6Cmy9pwtY0V/oss/images/routing.png?fit=max&auto=format&n=dL5Sn6Cmy9pwtY0V&q=85&s=272e0e9b681b89cd7d35d5c812c50ee6" alt="routing.png" width="1214" height="678" data-path="oss/images/routing.png" />
+```python
+router = llm.with_structured_output(Route)
+```
 
-<CodeGroup>
-  ```python Graph API theme={"theme":{"light":"catppuccin-latte","dark":"catppuccin-mocha"}}
-  from typing_extensions import Literal
-  from langchain.messages import HumanMessage, SystemMessage
+---
 
+## Router Node
 
-  # Schema for structured output to use as routing logic
-  class Route(BaseModel):
-      step: Literal["poem", "story", "joke"] = Field(
-          None, description="The next step in the routing process"
-      )
+```python
+def route_request(state: State):
+    decision = router.invoke(
+        state["input"]
+    )
 
+    return {
+        "route": decision.step
+    }
+```
 
-  # Augment the LLM with schema for structured output
-  router = llm.with_structured_output(Route)
+---
 
+## Route Function
 
-  # State
-  class State(TypedDict):
-      input: str
-      decision: str
-      output: str
+```python
+def choose_route(state: State):
+    return state["route"]
+```
 
+Then:
 
-  # Nodes
-  def llm_call_1(state: State):
-      """Write a story"""
+```python
+builder.add_conditional_edges(
+    "router",
+    choose_route,
+    {
+        "ui": "ui_agent",
+        "api": "api_agent",
+        "database": "database_agent",
+    }
+)
+```
 
-      result = llm.invoke(state["input"])
-      return {"output": result.content}
+---
 
+## Routing Architecture
 
-  def llm_call_2(state: State):
-      """Write a joke"""
+<img src="https://mintcdn.com/langchain-5e9cc07a/dL5Sn6Cmy9pwtY0V/oss/images/routing.png?fit=max&auto=format&n=-_xGPoyjhyiDWTPJ&q=85&s=272e0e9b681b89cd7d35d5c812c50ee6" alt="Routing" width="1214" height="678" />
 
-      result = llm.invoke(state["input"])
-      return {"output": result.content}
+---
 
+# 14. Orchestrator-Worker
 
-  def llm_call_3(state: State):
-      """Write a poem"""
-
-      result = llm.invoke(state["input"])
-      return {"output": result.content}
-
-
-  def llm_call_router(state: State):
-      """Route the input to the appropriate node"""
-
-      # Run the augmented LLM with structured output to serve as routing logic
-      decision = router.invoke(
-          [
-              SystemMessage(
-                  content="Route the input to story, joke, or poem based on the user's request."
-              ),
-              HumanMessage(content=state["input"]),
-          ]
-      )
-
-      return {"decision": decision.step}
-
-
-  # Conditional edge function to route to the appropriate node
-  def route_decision(state: State):
-      # Return the node name you want to visit next
-      if state["decision"] == "story":
-          return "llm_call_1"
-      elif state["decision"] == "joke":
-          return "llm_call_2"
-      elif state["decision"] == "poem":
-          return "llm_call_3"
-
-
-  # Build workflow
-  router_builder = StateGraph(State)
-
-  # Add nodes
-  router_builder.add_node("llm_call_1", llm_call_1)
-  router_builder.add_node("llm_call_2", llm_call_2)
-  router_builder.add_node("llm_call_3", llm_call_3)
-  router_builder.add_node("llm_call_router", llm_call_router)
-
-  # Add edges to connect nodes
-  router_builder.add_edge(START, "llm_call_router")
-  router_builder.add_conditional_edges(
-      "llm_call_router",
-      route_decision,
-      {  # Name returned by route_decision : Name of next node to visit
-          "llm_call_1": "llm_call_1",
-          "llm_call_2": "llm_call_2",
-          "llm_call_3": "llm_call_3",
-      },
-  )
-  router_builder.add_edge("llm_call_1", END)
-  router_builder.add_edge("llm_call_2", END)
-  router_builder.add_edge("llm_call_3", END)
-
-  # Compile workflow
-  router_workflow = router_builder.compile()
-
-  # Show the workflow
-  display(Image(router_workflow.get_graph().draw_mermaid_png()))
-
-  # Invoke
-  state = router_workflow.invoke({"input": "Write me a joke about cats"})
-  print(state["output"])
-  ```
-
-  ```python Functional API theme={"theme":{"light":"catppuccin-latte","dark":"catppuccin-mocha"}}
-  from typing_extensions import Literal
-  from pydantic import BaseModel
-  from langchain.messages import HumanMessage, SystemMessage
-
-
-  # Schema for structured output to use as routing logic
-  class Route(BaseModel):
-      step: Literal["poem", "story", "joke"] = Field(
-          None, description="The next step in the routing process"
-      )
-
-
-  # Augment the LLM with schema for structured output
-  router = llm.with_structured_output(Route)
-
-
-  @task
-  def llm_call_1(input_: str):
-      """Write a story"""
-      result = llm.invoke(input_)
-      return result.content
-
-
-  @task
-  def llm_call_2(input_: str):
-      """Write a joke"""
-      result = llm.invoke(input_)
-      return result.content
-
-
-  @task
-  def llm_call_3(input_: str):
-      """Write a poem"""
-      result = llm.invoke(input_)
-      return result.content
-
-
-  def llm_call_router(input_: str):
-      """Route the input to the appropriate node"""
-      # Run the augmented LLM with structured output to serve as routing logic
-      decision = router.invoke(
-          [
-              SystemMessage(
-                  content="Route the input to story, joke, or poem based on the user's request."
-              ),
-              HumanMessage(content=input_),
-          ]
-      )
-      return decision.step
-
-
-  # Create workflow
-  @entrypoint()
-  def router_workflow(input_: str):
-      next_step = llm_call_router(input_)
-      if next_step == "story":
-          llm_call = llm_call_1
-      elif next_step == "joke":
-          llm_call = llm_call_2
-      elif next_step == "poem":
-          llm_call = llm_call_3
-
-      return llm_call(input_).result()
-
-  # Invoke
-  stream = router_workflow.stream_events("Write me a joke about cats", version="v3")
-  for snapshot in stream.values:
-      print(snapshot)
-      print("\n")
-  ```
-</CodeGroup>
-
-## Orchestrator-worker
-
-### 👷 What Problem Does This Pattern Solve?
-
-Use orchestrator-worker when the number or type of subtasks cannot be fully defined before execution.
-
-The orchestrator dynamically:
-
-1. Understands the overall request.
-2. Breaks it into subtasks.
-3. Delegates work.
-4. Collects completed outputs.
-5. Synthesizes a final result.
-
-### Architecture
+Orchestrator-worker is useful when the number or type of subtasks is not known in advance.
 
 ```text
-Complex Request
-      ↓
-Orchestrator / Planner
-      ↓
-Creates Dynamic Task List
-      ↓
- ┌────┼────┐
- ↓    ↓    ↓
-W1    W2   W3
- ↓    ↓    ↓
- └────┼────┘
-      ↓
-Synthesizer
-      ↓
-Final Output
+             Complex Request
+                    ↓
+              Orchestrator
+                    ↓
+              Dynamic Plan
+                    ↓
+       ┌────────────┼────────────┐
+       ▼            ▼            ▼
+    Worker A     Worker B     Worker C
+       │            │            │
+       └────────────┼────────────┘
+                    ▼
+               Synthesizer
+                    ↓
+                 Output
 ```
 
-This differs from simple parallelization because the work plan itself may be generated dynamically.
+---
 
+## Orchestrator Responsibilities
 
+The orchestrator:
 
-In an orchestrator-worker configuration, the orchestrator:
+1. understands the request
+2. creates a plan
+3. generates subtasks
+4. dispatches workers
+5. collects results
+6. coordinates synthesis
 
-* Breaks down tasks into subtasks
-* Delegates subtasks to workers
-* Synthesizes worker outputs into a final result
+---
 
-<img src="https://mintcdn.com/langchain-5e9cc07a/ybiAaBfoBvFquMDz/oss/images/worker.png?fit=max&auto=format&n=ybiAaBfoBvFquMDz&q=85&s=2e423c67cd4f12e049cea9c169ff0676" alt="worker.png" width="1486" height="548" data-path="oss/images/worker.png" />
+## Worker Responsibilities
 
-Orchestrator-worker workflows provide more flexibility and are often used when subtasks cannot be predefined the way they can with [parallelization](#parallelization). This is common with workflows that write code or need to update content across multiple files. For example, a workflow that needs to update installation instructions for multiple Python libraries across an unknown number of documents might use this pattern.
+A worker should focus on one subtask.
 
-<CodeGroup>
-  ```python Graph API theme={"theme":{"light":"catppuccin-latte","dark":"catppuccin-mocha"}}
-  from typing import Annotated, List
-  import operator
+Example:
 
-
-  # Schema for structured output to use in planning
-  class Section(BaseModel):
-      name: str = Field(
-          description="Name for this section of the report.",
-      )
-      description: str = Field(
-          description="Brief overview of the main topics and concepts to be covered in this section.",
-      )
-
-
-  class Sections(BaseModel):
-      sections: List[Section] = Field(
-          description="Sections of the report.",
-      )
-
-
-  # Augment the LLM with schema for structured output
-  planner = llm.with_structured_output(Sections)
-  ```
-
-  ```python Functional API theme={"theme":{"light":"catppuccin-latte","dark":"catppuccin-mocha"}}
-  from typing import List
-
-
-  # Schema for structured output to use in planning
-  class Section(BaseModel):
-      name: str = Field(
-          description="Name for this section of the report.",
-      )
-      description: str = Field(
-          description="Brief overview of the main topics and concepts to be covered in this section.",
-      )
-
-
-  class Sections(BaseModel):
-      sections: List[Section] = Field(
-          description="Sections of the report.",
-      )
-
-
-  # Augment the LLM with schema for structured output
-  planner = llm.with_structured_output(Sections)
-
-
-  @task
-  def orchestrator(topic: str):
-      """Orchestrator that generates a plan for the report"""
-      # Generate queries
-      report_sections = planner.invoke(
-          [
-              SystemMessage(content="Generate a plan for the report."),
-              HumanMessage(content=f"Here is the report topic: {topic}"),
-          ]
-      )
-
-      return report_sections.sections
-
-
-  @task
-  def llm_call(section: Section):
-      """Worker writes a section of the report"""
-
-      # Generate section
-      result = llm.invoke(
-          [
-              SystemMessage(content="Write a report section."),
-              HumanMessage(
-                  content=f"Here is the section name: {section.name} and description: {section.description}"
-              ),
-          ]
-      )
-
-      # Write the updated section to completed sections
-      return result.content
-
-
-  @task
-  def synthesizer(completed_sections: list[str]):
-      """Synthesize full report from sections"""
-      final_report = "\n\n---\n\n".join(completed_sections)
-      return final_report
-
-
-  @entrypoint()
-  def orchestrator_worker(topic: str):
-      sections = orchestrator(topic).result()
-      section_futures = [llm_call(section) for section in sections]
-      final_report = synthesizer(
-          [section_fut.result() for section_fut in section_futures]
-      ).result()
-      return final_report
-
-  # Invoke
-  report = orchestrator_worker.invoke("Create a report on LLM scaling laws")
-  from IPython.display import Markdown
-  Markdown(report)
-  ```
-</CodeGroup>
-
-### Creating workers in LangGraph
-
-Orchestrator-worker workflows are common and LangGraph has built-in support for them. The `Send` API lets you dynamically create worker nodes and send them specific inputs. Each worker has its own state, and all worker outputs are written to a shared state key that is accessible to the orchestrator graph. This gives the orchestrator access to all worker output and allows it to synthesize them into a final output. The example below iterates over a list of sections and uses the `Send` API to send a section to each worker.
-
-```python theme={"theme":{"light":"catppuccin-latte","dark":"catppuccin-mocha"}}
-from langgraph.types import Send
-
-
-# Graph state
-class State(TypedDict):
-    topic: str  # Report topic
-    sections: list[Section]  # List of report sections
-    completed_sections: Annotated[
-        list, operator.add
-    ]  # All workers write to this key in parallel
-    final_report: str  # Final report
-
-
-# Worker state
-class WorkerState(TypedDict):
-    section: Section
-    completed_sections: Annotated[list, operator.add]
-
-
-# Nodes
-def orchestrator(state: State):
-    """Orchestrator that generates a plan for the report"""
-
-    # Generate queries
-    report_sections = planner.invoke(
-        [
-            SystemMessage(content="Generate a plan for the report."),
-            HumanMessage(content=f"Here is the report topic: {state['topic']}"),
-        ]
-    )
-
-    return {"sections": report_sections.sections}
-
-
-def llm_call(state: WorkerState):
-    """Worker writes a section of the report"""
-
-    # Generate section
-    section = llm.invoke(
-        [
-            SystemMessage(
-                content="Write a report section following the provided name and description. Include no preamble for each section. Use markdown formatting."
-            ),
-            HumanMessage(
-                content=f"Here is the section name: {state['section'].name} and description: {state['section'].description}"
-            ),
-        ]
-    )
-
-    # Write the updated section to completed sections
-    return {"completed_sections": [section.content]}
-
-
-def synthesizer(state: State):
-    """Synthesize full report from sections"""
-
-    # List of completed sections
-    completed_sections = state["completed_sections"]
-
-    # Format completed section to str to use as context for final sections
-    completed_report_sections = "\n\n---\n\n".join(completed_sections)
-
-    return {"final_report": completed_report_sections}
-
-
-# Conditional edge function to create llm_call workers that each write a section of the report
-def assign_workers(state: State):
-    """Assign a worker to each section in the plan"""
-
-    # Kick off section writing in parallel via Send() API
-    return [Send("llm_call", {"section": s}) for s in state["sections"]]
-
-
-# Build workflow
-orchestrator_worker_builder = StateGraph(State)
-
-# Add the nodes
-orchestrator_worker_builder.add_node("orchestrator", orchestrator)
-orchestrator_worker_builder.add_node("llm_call", llm_call)
-orchestrator_worker_builder.add_node("synthesizer", synthesizer)
-
-# Add edges to connect nodes
-orchestrator_worker_builder.add_edge(START, "orchestrator")
-orchestrator_worker_builder.add_conditional_edges(
-    "orchestrator", assign_workers, ["llm_call"]
-)
-orchestrator_worker_builder.add_edge("llm_call", "synthesizer")
-orchestrator_worker_builder.add_edge("synthesizer", END)
-
-# Compile the workflow
-orchestrator_worker = orchestrator_worker_builder.compile()
-
-# Show the workflow
-display(Image(orchestrator_worker.get_graph().draw_mermaid_png()))
-
-# Invoke
-state = orchestrator_worker.invoke({"topic": "Create a report on LLM scaling laws"})
-
-from IPython.display import Markdown
-Markdown(state["final_report"])
+```text
+Requirement
+     ↓
+Orchestrator
+     ↓
+ ┌───┼────┬─────┐
+ ▼   ▼    ▼     ▼
+UI  API  DB  Security
 ```
 
-## Evaluator-optimizer
+---
 
-### 🔄 What Problem Does This Pattern Solve?
+## Example Planning Schema
 
-Some outputs cannot be reliably completed in one generation. The evaluator-optimizer pattern introduces an explicit quality loop:
+```python
+from pydantic import BaseModel
+from typing import List
+
+
+class Section(BaseModel):
+    name: str
+    description: str
+
+
+class Plan(BaseModel):
+    sections: List[Section]
+```
+
+Then:
+
+```python
+planner = llm.with_structured_output(Plan)
+```
+
+---
+
+# 15. Evaluator-Optimizer
+
+Evaluator-optimizer introduces a quality-control loop.
 
 ```text
 Generate
    ↓
 Evaluate
    ↓
-Accept? ── Yes → Finish
-   │
-   No
-   ↓
-Feedback
-   ↓
-Regenerate
-   └───────────────↺
+Accept?
+ ┌─┴───┐
+Yes    No
+ │      │
+ ▼      ▼
+END   Feedback
+         │
+         ▼
+      Generate
+         ↺
 ```
 
-### When It Is Useful
+---
 
-Use this pattern when:
+## Important
 
-- Success criteria can be defined.
-- Iterative refinement improves quality.
-- Feedback can guide another generation.
-- A bounded number of retries is acceptable.
+Never create an unbounded loop.
 
-### Critical Production Rule
+Bad:
 
-Always define a maximum iteration count or another stopping condition. An unbounded evaluator loop can increase cost and create non-terminating executions.
+```python
+while True:
+    generate()
+    evaluate()
+```
 
+Better:
 
+```python
+MAX_ITERATIONS = 3
 
-In evaluator-optimizer workflows, one LLM call creates a response and the other evaluates that response. If the evaluator or a [human-in-the-loop](/oss/python/langgraph/interrupts) determines the response needs refinement, feedback is provided and the response is recreated. This loop continues until an acceptable response is generated.
+for attempt in range(MAX_ITERATIONS):
+    ...
+```
 
-Evaluator-optimizer workflows are commonly used when there's particular success criteria for a task, but iteration is required to meet that criteria. For example, there's not always a perfect match when translating text between two languages. It might take a few iterations to generate a translation with the same meaning across the two languages.
+---
 
-<img src="https://mintcdn.com/langchain-5e9cc07a/-_xGPoyjhyiDWTPJ/oss/images/evaluator_optimizer.png?fit=max&auto=format&n=-_xGPoyjhyiDWTPJ&q=85&s=9bd0474f42b6040b14ed6968a9ab4e3c" alt="evaluator_optimizer.png" width="1004" height="340" data-path="oss/images/evaluator_optimizer.png" />
+## Example
 
-<CodeGroup>
-  ```python Graph API theme={"theme":{"light":"catppuccin-latte","dark":"catppuccin-mocha"}}
-  # Graph state
-  class State(TypedDict):
-      joke: str
-      topic: str
-      feedback: str
-      funny_or_not: str
-
-
-  # Schema for structured output to use in evaluation
-  class Feedback(BaseModel):
-      grade: Literal["funny", "not funny"] = Field(
-          description="Decide if the joke is funny or not.",
-      )
-      feedback: str = Field(
-          description="If the joke is not funny, provide feedback on how to improve it.",
-      )
+```python
+from typing_extensions import TypedDict
 
 
-  # Augment the LLM with schema for structured output
-  evaluator = llm.with_structured_output(Feedback)
+class State(TypedDict):
+    topic: str
+    output: str
+    feedback: str
+    score: int
+    attempts: int
+```
 
+Generator:
 
-  # Nodes
-  def llm_call_generator(state: State):
-      """LLM generates a joke"""
+```python
+def generate(state: State):
+    prompt = f"""
+    Generate an answer about:
+    {state['topic']}
+    """
 
-      if state.get("feedback"):
-          msg = llm.invoke(
-              f"Write a joke about {state['topic']} but take into account the feedback: {state['feedback']}"
-          )
-      else:
-          msg = llm.invoke(f"Write a joke about {state['topic']}")
-      return {"joke": msg.content}
+    if state.get("feedback"):
+        prompt += f"""
+        Improve the answer using:
+        {state['feedback']}
+        """
 
+    result = llm.invoke(prompt)
 
-  def llm_call_evaluator(state: State):
-      """LLM evaluates the joke"""
+    return {
+        "output": result.content,
+        "attempts": state.get("attempts", 0) + 1
+    }
+```
 
-      grade = evaluator.invoke(f"Grade the joke {state['joke']}")
-      return {"funny_or_not": grade.grade, "feedback": grade.feedback}
+Evaluator:
 
+```python
+def evaluate(state: State):
+    result = llm.invoke(
+        f"""
+        Evaluate this answer:
 
-  # Conditional edge function to route back to joke generator or end based upon feedback from the evaluator
-  def route_joke(state: State):
-      """Route back to joke generator or end based upon feedback from the evaluator"""
+        {state['output']}
 
-      if state["funny_or_not"] == "funny":
-          return "Accepted"
-      elif state["funny_or_not"] == "not funny":
-          return "Rejected + Feedback"
+        Return whether it meets the quality requirements.
+        """
+    )
 
+    return {
+        "feedback": result.content
+    }
+```
 
-  # Build workflow
-  optimizer_builder = StateGraph(State)
+The production graph should route either to completion or another generation attempt based on a bounded condition.
 
-  # Add the nodes
-  optimizer_builder.add_node("llm_call_generator", llm_call_generator)
-  optimizer_builder.add_node("llm_call_evaluator", llm_call_evaluator)
+---
 
-  # Add edges to connect nodes
-  optimizer_builder.add_edge(START, "llm_call_generator")
-  optimizer_builder.add_edge("llm_call_generator", "llm_call_evaluator")
-  optimizer_builder.add_conditional_edges(
-      "llm_call_evaluator",
-      route_joke,
-      {  # Name returned by route_joke : Name of next node to visit
-          "Accepted": END,
-          "Rejected + Feedback": "llm_call_generator",
-      },
-  )
+## Evaluator-Optimizer Architecture
 
-  # Compile the workflow
-  optimizer_workflow = optimizer_builder.compile()
+<img src="https://mintcdn.com/langchain-5e9cc07a/-_xGPoyjhyiDWTPJ/oss/images/evaluator_optimizer.png?fit=max&auto=format&n=-_xGPoyjhyiDWTPJ&q=85&s=9bd0474f42b604b14ed6968a9ab4e3c" alt="Evaluator Optimizer" width="1004" height="340" />
 
-  # Show the workflow
-  display(Image(optimizer_workflow.get_graph().draw_mermaid_png()))
+---
 
-  # Invoke
-  state = optimizer_workflow.invoke({"topic": "Cats"})
-  print(state["joke"])
-  ```
+# 16. Agents
 
-  ```python Functional API theme={"theme":{"light":"catppuccin-latte","dark":"catppuccin-mocha"}}
-  # Schema for structured output to use in evaluation
-  class Feedback(BaseModel):
-      grade: Literal["funny", "not funny"] = Field(
-          description="Decide if the joke is funny or not.",
-      )
-      feedback: str = Field(
-          description="If the joke is not funny, provide feedback on how to improve it.",
-      )
+An agent is useful when the next action depends on information discovered during execution.
 
-
-  # Augment the LLM with schema for structured output
-  evaluator = llm.with_structured_output(Feedback)
-
-
-  # Nodes
-  @task
-  def llm_call_generator(topic: str, feedback: Feedback):
-      """LLM generates a joke"""
-      if feedback:
-          msg = llm.invoke(
-              f"Write a joke about {topic} but take into account the feedback: {feedback}"
-          )
-      else:
-          msg = llm.invoke(f"Write a joke about {topic}")
-      return msg.content
-
-
-  @task
-  def llm_call_evaluator(joke: str):
-      """LLM evaluates the joke"""
-      feedback = evaluator.invoke(f"Grade the joke {joke}")
-      return feedback
-
-
-  @entrypoint()
-  def optimizer_workflow(topic: str):
-      feedback = None
-      while True:
-          joke = llm_call_generator(topic, feedback).result()
-          feedback = llm_call_evaluator(joke).result()
-          if feedback.grade == "funny":
-              break
-
-      return joke
-
-  # Invoke
-  stream = optimizer_workflow.stream_events("Cats", version="v3")
-  for snapshot in stream.values:
-      print(snapshot)
-      print("\n")
-  ```
-</CodeGroup>
-
-## Agents
-
-### 🤖 What Makes an Agent Different?
-
-An agent repeatedly observes the current situation and determines the next action.
-
-A typical loop is:
+Typical loop:
 
 ```text
-User Request
-      ↓
-LLM
-      ↓
-Need a tool?
- ┌────┴────┐
- No        Yes
- ↓          ↓
-Answer     Execute Tool
-              ↓
-          Tool Result
-              ↓
-             LLM
-              ↺
+             User Request
+                  ↓
+                 LLM
+                  ↓
+          Choose next action
+                  ↓
+          ┌───────┴────────┐
+          ▼                ▼
+       Tool Call        Final Answer
+          │
+          ▼
+      Tool Result
+          │
+          └──────→ LLM
+                     ↺
 ```
 
-### Agent Design Questions
+---
 
-Before creating an agent, decide:
+## Agent Responsibilities
 
-- Which tools are available?
-- Which actions are forbidden?
-- What information is included in state?
-- What stops the loop?
-- How are tool errors represented?
-- Can multiple tools run concurrently?
-- Is human approval required for sensitive actions?
+A production agent should define:
 
-The following examples show the core tool execution loop explicitly.
+* available tools
+* tool permissions
+* input validation
+* state
+* context
+* termination rules
+* error handling
+* retry behaviour
+* maximum iterations
+* human approval requirements
 
+---
 
+## Agent Architecture
 
-Agents are typically implemented as an LLM performing actions using [tools](/oss/python/langchain/tools). They operate in continuous feedback loops, and are used in situations where problems and solutions are unpredictable. Agents have more autonomy than workflows, and can make decisions about the tools they use and how to solve problems. You can still define the available toolset and guidelines for how agents behave.
+<img src="https://mintcdn.com/langchain-5e9cc07a/-_xGPoyjhyiDWTPJ/oss/images/agent.png?fit=max&auto=format&n=-_xGPoyjhyiDWTPJ&q=85&s=bd8da41dbf8b5e6fc9ea6bb10cb63e38" alt="Agent Architecture" width="1732" height="712" />
 
-<img src="https://mintcdn.com/langchain-5e9cc07a/-_xGPoyjhyiDWTPJ/oss/images/agent.png?fit=max&auto=format&n=-_xGPoyjhyiDWTPJ&q=85&s=bd8da41dbf8b5e6fc9ea6bb10cb63e38" alt="agent.png" width="1732" height="712" data-path="oss/images/agent.png" />
+---
 
-<Note>
-  To get started with agents, see the [quickstart](/oss/python/langchain/quickstart) or read more about [how they work](/oss/python/langchain/agents) in LangChain.
-</Note>
+# 17. ToolNode
 
-```python Using tools theme={"theme":{"light":"catppuccin-latte","dark":"catppuccin-mocha"}}
-from langchain.tools import tool
+`ToolNode` is a reusable graph component for executing tool calls produced by a model.
 
-
-# Define tools
-@tool
-def multiply(a: int, b: int) -> int:
-    """Multiply `a` and `b`.
-
-    Args:
-        a: First int
-        b: Second int
-    """
-    return a * b
-
-
-@tool
-def add(a: int, b: int) -> int:
-    """Adds `a` and `b`.
-
-    Args:
-        a: First int
-        b: Second int
-    """
-    return a + b
-
-
-@tool
-def divide(a: int, b: int) -> float:
-    """Divide `a` and `b`.
-
-    Args:
-        a: First int
-        b: Second int
-    """
-    return a / b
-
-
-# Augment the LLM with tools
-tools = [add, multiply, divide]
-tools_by_name = {tool.name: tool for tool in tools}
-llm_with_tools = llm.bind_tools(tools)
-```
-
-<CodeGroup>
-  ```python Graph API theme={"theme":{"light":"catppuccin-latte","dark":"catppuccin-mocha"}}
-  from langgraph.graph import MessagesState
-  from langchain.messages import SystemMessage, HumanMessage, ToolMessage
-
-
-  # Nodes
-  def llm_call(state: MessagesState):
-      """LLM decides whether to call a tool or not"""
-
-      return {
-          "messages": [
-              llm_with_tools.invoke(
-                  [
-                      SystemMessage(
-                          content="You are a helpful assistant tasked with performing arithmetic on a set of inputs."
-                      )
-                  ]
-                  + state["messages"]
-              )
-          ]
-      }
-
-
-  def tool_node(state: MessagesState):
-      """Performs the tool call"""
-
-      result = []
-      for tool_call in state["messages"][-1].tool_calls:
-          tool = tools_by_name[tool_call["name"]]
-          observation = tool.invoke(tool_call["args"])
-          result.append(ToolMessage(content=observation, tool_call_id=tool_call["id"]))
-      return {"messages": result}
-
-
-  # Conditional edge function to route to the tool node or end based upon whether the LLM made a tool call
-  def should_continue(state: MessagesState) -> Literal["tool_node", END]:
-      """Decide if we should continue the loop or stop based upon whether the LLM made a tool call"""
-
-      messages = state["messages"]
-      last_message = messages[-1]
-
-      # If the LLM makes a tool call, then perform an action
-      if last_message.tool_calls:
-          return "tool_node"
-
-      # Otherwise, we stop (reply to the user)
-      return END
-
-
-  # Build workflow
-  agent_builder = StateGraph(MessagesState)
-
-  # Add nodes
-  agent_builder.add_node("llm_call", llm_call)
-  agent_builder.add_node("tool_node", tool_node)
-
-  # Add edges to connect nodes
-  agent_builder.add_edge(START, "llm_call")
-  agent_builder.add_conditional_edges(
-      "llm_call",
-      should_continue,
-      ["tool_node", END]
-  )
-  agent_builder.add_edge("tool_node", "llm_call")
-
-  # Compile the agent
-  agent = agent_builder.compile()
-
-  # Show the agent
-  display(Image(agent.get_graph(xray=True).draw_mermaid_png()))
-
-  # Invoke
-  messages = [HumanMessage(content="Add 3 and 4.")]
-  messages = agent.invoke({"messages": messages})
-  for m in messages["messages"]:
-      m.pretty_print()
-  ```
-
-  ```python Functional API theme={"theme":{"light":"catppuccin-latte","dark":"catppuccin-mocha"}}
-  from langgraph.graph import add_messages
-  from langchain.messages import (
-      SystemMessage,
-      HumanMessage,
-      ToolCall,
-  )
-  from langchain_core.messages import BaseMessage
-
-
-  @task
-  def call_llm(messages: list[BaseMessage]):
-      """LLM decides whether to call a tool or not"""
-      return llm_with_tools.invoke(
-          [
-              SystemMessage(
-                  content="You are a helpful assistant tasked with performing arithmetic on a set of inputs."
-              )
-          ]
-          + messages
-      )
-
-
-  @task
-  def call_tool(tool_call: ToolCall):
-      """Performs the tool call"""
-      tool = tools_by_name[tool_call["name"]]
-      return tool.invoke(tool_call)
-
-
-  @entrypoint()
-  def agent(messages: list[BaseMessage]):
-      llm_response = call_llm(messages).result()
-
-      while True:
-          if not llm_response.tool_calls:
-              break
-
-          # Execute tools
-          tool_result_futures = [
-              call_tool(tool_call) for tool_call in llm_response.tool_calls
-          ]
-          tool_results = [fut.result() for fut in tool_result_futures]
-          messages = add_messages(messages, [llm_response, *tool_results])
-          llm_response = call_llm(messages).result()
-
-      messages = add_messages(messages, llm_response)
-      return messages
-
-  # Invoke
-  messages = [HumanMessage(content="Add 3 and 4.")]
-  stream = agent.stream_events(messages, version="v3")
-  for snapshot in stream.values:
-      print(snapshot)
-      print("\n")
-  ```
-</CodeGroup>
-
-### ToolNode
-
-### 🧰 Why Use a Prebuilt Tool Node?
-
-Tool execution contains repeated infrastructure concerns:
-
-- Executing requested tools
-- Handling multiple tool calls
-- Managing tool errors
-- Connecting tool results back into graph state
-- Injecting graph-side state or run context
-
-A prebuilt tool execution node reduces the amount of custom orchestration code required for these responsibilities.
-
-### Conceptual Flow
+It is important to distinguish:
 
 ```text
-LLM Response
-    ↓
-Contains Tool Calls?
-    ├── No → Finish / Continue Normal Flow
-    └── Yes
-          ↓
-       ToolNode
-          ↓
-   Execute Requested Tools
-          ↓
-     Tool Messages
-          ↓
-          LLM
+Agent
+ ├── LLM
+ ├── Decision logic
+ ├── Tool calls
+ ├── State
+ └── Termination
 ```
 
+from:
 
+```text
+ToolNode
+ └── Tool execution
+```
 
-[`ToolNode`](https://reference.langchain.com/python/langgraph/agents/#langgraph.prebuilt.tool_node.ToolNode) is a prebuilt node that executes tools in LangGraph workflows. It handles parallel tool execution, error handling, and state injection automatically.
+`ToolNode` is a building block that can be used inside an agent graph.
 
-Use [`ToolNode`](https://reference.langchain.com/python/langgraph/agents/#langgraph.prebuilt.tool_node.ToolNode) when you need fine-grained control over how your graph executes tools. This is the building block that powers tool execution in many LangGraph agent patterns.
+---
 
-```python theme={"theme":{"light":"catppuccin-latte","dark":"catppuccin-mocha"}}
+## Example
+
+```python
 from langchain.tools import tool
 from langgraph.prebuilt import ToolNode
-from langgraph.graph import MessagesState, StateGraph
+
 
 @tool
 def search(query: str) -> str:
     """Search for information."""
-    return f"Results for: {query}"
-
-@tool
-def calculator(expression: str) -> str:
-    """Evaluate a math expression."""
-    return str(eval(expression))
-
-builder = StateGraph(MessagesState)
-builder.add_node("tools", ToolNode([search, calculator]))
-# ... add other nodes and edges
-graph = builder.compile()
-```
-
-#### Access graph state and context from tools
-
-Tools executed by `ToolNode` receive the arguments generated by the model as
-their first argument. To read graph-side data that was not generated by the
-model, use one of these options:
-
-* In Python, read state and run-scoped context from the injected
-  [`ToolRuntime`](https://reference.langchain.com/python/langchain/tools/#langchain.tools.ToolRuntime) argument.
-* In JavaScript, read state and run-scoped context from the tool's second
-  argument, typed as [`ToolRuntime`](https://reference.langchain.com/python/langchain/tools/#langchain.tools.ToolRuntime).
-
-<Note>
-  Tools can only access the state values passed to the `ToolNode`. When
-  `ToolNode` is added directly as a `StateGraph` node, that input is the current
-  graph state. If you invoke a `ToolNode` manually from another node, pass the
-  full state when tools need custom state fields. For example, `tool_node.invoke(state)`
-  or `toolNode.invoke(state, config)` exposes the full state, while passing only
-  `{"messages": state["messages"]}` or `{ messages: state.messages }` only exposes
-  `messages`.
-</Note>
-
-```python theme={"theme":{"light":"catppuccin-latte","dark":"catppuccin-mocha"}}
-from dataclasses import dataclass
-
-from langchain.messages import AIMessage
-from langchain.tools import ToolRuntime, tool
-from langgraph.graph import MessagesState, START, StateGraph
-from langgraph.prebuilt import ToolNode
-
-
-class State(MessagesState):
-    user_id: str
-
-
-@dataclass
-class Context:
-    organization_id: str
+    return f"Search results for: {query}"
 
 
 @tool
-def get_user_info(runtime: ToolRuntime[Context, State]) -> str:
-    """Look up user information."""
-    # Read the current graph state passed to the ToolNode.
-    user_id = runtime.state["user_id"]
-
-    # Read explicit per-run values that are not part of graph state.
-    organization_id = runtime.context.organization_id
-
-    return f"User {user_id} in organization {organization_id}"
+def calculator(a: int, b: int) -> int:
+    """Add two numbers."""
+    return a + b
 
 
-builder = StateGraph(State, context_schema=Context)
-builder.add_node("tools", ToolNode([get_user_info]))
-builder.add_edge(START, "tools")
-graph = builder.compile()
+tools = [
+    search,
+    calculator
+]
 
-result = graph.invoke(
-    {
-        "messages": [
-            AIMessage(
-                content="",
-                tool_calls=[
-                    {
-                        "name": "get_user_info",
-                        "args": {},
-                        "id": "call_user_info",
-                    }
-                ],
-            )
-        ],
-        "user_id": "user_123",
-    },
-    context=Context(organization_id="org_456"),
-)
+tool_node = ToolNode(tools)
 ```
-
-***
-
-<div className="source-links">
-  <Callout icon="terminal-2">
-    [Connect these docs](/use-these-docs) to Claude, VSCode, and more via MCP for real-time answers.
-  </Callout>
-
-  <Callout icon="edit">
-    [Edit this page on GitHub](https://github.com/langchain-ai/docs/edit/main/src/oss/langgraph/workflows-agents.mdx) or [file an issue](https://github.com/langchain-ai/docs/issues/new/choose).
-  </Callout>
-</div>
-
-````
-
-**LF**
-
 
 ---
 
-# 🎯 Pattern Selection Guide
+## Agent + ToolNode
+
+```text
+                 START
+                   ↓
+                  LLM
+                   ↓
+             Tool required?
+              ┌────┴────┐
+             No         Yes
+             ↓           ↓
+            END       ToolNode
+                         ↓
+                    Tool Result
+                         ↓
+                        LLM
+                         ↺
+```
+
+---
+
+## Tool Safety
+
+Never blindly execute arbitrary model-generated commands.
+
+Validate:
+
+* arguments
+* permissions
+* resource identifiers
+* allowed operations
+* authentication
+* authorization
+* rate limits
+* side effects
+
+---
+
+# 18. Send API
+
+`Send` is particularly useful for dynamic fan-out.
+
+Suppose the orchestrator creates:
+
+```text
+sections = [
+    Section A,
+    Section B,
+    Section C,
+    Section D
+]
+```
+
+The graph can dynamically create worker executions.
+
+```text
+                 Planner
+                    ↓
+        ┌───────────┼───────────┐
+        ▼           ▼           ▼
+      Send A      Send B      Send C
+        │           │           │
+        ▼           ▼           ▼
+     Worker A    Worker B    Worker C
+        │           │           │
+        └───────────┼───────────┘
+                    ▼
+                Synthesizer
+```
+
+---
+
+## Example
+
+```python
+from langgraph.types import Send
+
+
+def assign_workers(state):
+    return [
+        Send(
+            "worker",
+            {
+                "section": section
+            }
+        )
+        for section in state["sections"]
+    ]
+```
+
+This is different from ordinary static parallelization because the number of workers can be generated dynamically.
+
+---
+
+# 19. Command API
+
+Sometimes a node needs to both:
+
+1. update state
+2. control where execution goes next
+
+`Command` can represent this combined operation.
+
+Conceptually:
+
+```text
+Node
+ ├── Update State
+ └── Choose Destination
+```
+
+This can be useful when routing decisions and state updates naturally belong together.
+
+Example:
+
+```python
+from langgraph.types import Command
+
+
+def decision_node(state):
+    if state["valid"]:
+        return Command(
+            update={
+                "status": "approved"
+            },
+            goto="success"
+        )
+
+    return Command(
+        update={
+            "status": "rejected"
+        },
+        goto="retry"
+    )
+```
+
+> Exact typing and graph configuration should be checked against the current LangGraph API version when implementing this pattern.
+
+---
+
+# 20. Persistence and Checkpointing
+
+A production agent often needs to survive beyond one function call.
+
+Examples:
+
+```text
+Request
+   ↓
+Graph starts
+   ↓
+Tool call
+   ↓
+Checkpoint
+   ↓
+Application restarts
+   ↓
+Resume
+```
+
+Persistence can enable:
+
+* resumability
+* conversation continuity
+* long-running workflows
+* fault recovery
+* human approval flows
+* execution history
+
+---
+
+## Checkpointing Mental Model
+
+```text
+          Graph Execution
+                │
+                ▼
+        ┌──────────────┐
+        │  Checkpoint  │
+        └──────┬───────┘
+               │
+        Persisted State
+               │
+               ▼
+       Resume Later
+```
+
+---
+
+## Why Persistence Matters
+
+Without persistence:
+
+```text
+Failure
+ ↓
+Start again
+```
+
+With appropriate persistence:
+
+```text
+Failure
+ ↓
+Load checkpoint
+ ↓
+Resume from saved execution state
+```
+
+This is especially valuable for:
+
+* multi-step agents
+* human-in-the-loop workflows
+* long-running jobs
+* expensive tool execution
+
+---
+
+# 21. Memory and Context
+
+Memory and state are related but not identical.
+
+---
+
+## Short-Term Conversation State
+
+A conversational agent may maintain:
+
+```text
+Message 1
+Message 2
+Message 3
+Message 4
+```
+
+within a thread or execution context.
+
+---
+
+## Long-Term Memory
+
+Long-term memory can represent information that should persist beyond one conversation.
+
+Examples:
+
+```text
+User preferences
+Known project configuration
+Previous decisions
+Reusable knowledge
+```
+
+A common architecture is:
+
+```text
+                 Agent
+                   │
+        ┌──────────┴──────────┐
+        ▼                     ▼
+   Short-Term State      Long-Term Store
+        │                     │
+        ▼                     ▼
+ Current Thread          Persistent Data
+```
+
+---
+
+## Avoid Memory Overuse
+
+Do not automatically store everything.
+
+Good memory:
+
+```text
+Information likely to be useful later
+```
+
+Bad memory:
+
+```text
+Every message
+Every debug log
+Every temporary intermediate result
+```
+
+Memory should have:
+
+* clear purpose
+* retention policy
+* access controls
+* update strategy
+* deletion strategy
+
+---
+
+# 22. Human-in-the-Loop and Interrupts
+
+Not every action should be fully autonomous.
+
+Sensitive actions may require human approval.
+
+Examples:
+
+* production deployment
+* deleting records
+* sending external communication
+* changing infrastructure
+* approving generated code
+* modifying test suites
+
+---
+
+## Human Approval Flow
+
+```text
+Agent
+  ↓
+Proposed Action
+  ↓
+Requires Approval?
+  ↓
+   YES
+    │
+    ▼
+  Interrupt
+    │
+    ▼
+ Human Review
+ ┌──┴──────┐
+ ▼         ▼
+Approve   Reject
+ │         │
+ ▼         ▼
+Execute   Stop/Modify
+```
+
+---
+
+## Why Human-in-the-Loop Matters
+
+Human approval provides a safety boundary between:
+
+```text
+Reasoning
+```
+
+and:
+
+```text
+Real-world side effect
+```
+
+For high-impact actions, this is often more important than increasing model intelligence.
+
+---
+
+# 23. Streaming
+
+Streaming is useful when users need visibility into execution before the graph completes.
+
+Without streaming:
+
+```text
+Request
+  ↓
+[Long execution]
+  ↓
+Final result
+```
+
+With streaming:
+
+```text
+Request
+  ↓
+Node started
+  ↓
+Model response
+  ↓
+Tool call
+  ↓
+Tool result
+  ↓
+Next node
+  ↓
+Final result
+```
+
+---
+
+## Streaming Use Cases
+
+Streaming can improve:
+
+* user experience
+* debugging
+* progress reporting
+* agent transparency
+* long-running workflow visibility
+
+---
+
+## Example Concept
+
+```python
+for event in graph.stream(
+    input_data
+):
+    print(event)
+```
+
+The exact stream mode and event structure should be selected based on whether you need state updates, messages, custom events, or execution/debug information.
+
+---
+
+# 24. Subgraphs
+
+As applications grow, a single graph can become difficult to maintain.
+
+Subgraphs allow one graph to encapsulate a reusable workflow.
+
+Example:
+
+```text
+Main Graph
+    │
+    ├── Requirement Analysis
+    │
+    ├── Test Generation Subgraph
+    │       ├── Parse
+    │       ├── Generate
+    │       └── Validate
+    │
+    ├── Execution Subgraph
+    │       ├── Prepare
+    │       ├── Execute
+    │       └── Collect
+    │
+    └── Reporting
+```
+
+---
+
+## Why Use Subgraphs?
+
+Subgraphs help with:
+
+* modularity
+* ownership boundaries
+* reuse
+* testing
+* independent development
+* complex multi-agent architectures
+
+---
+
+# 25. Error Handling and Retries
+
+AI systems fail differently from traditional applications.
+
+Potential failures:
+
+```text
+LLM timeout
+Tool timeout
+Rate limit
+Invalid structured output
+Malformed arguments
+External API failure
+Database failure
+Empty retrieval
+Unexpected state
+```
+
+---
+
+## Retry Strategy
+
+Not every failure should be retried.
+
+Good retry candidates:
+
+```text
+Transient network error
+Temporary provider failure
+Rate limiting
+Temporary service unavailable
+```
+
+Bad retry candidates:
+
+```text
+Invalid credentials
+Invalid request
+Permission denied
+Invalid business logic
+Unsafe action
+```
+
+---
+
+## Exponential Backoff
+
+Conceptually:
+
+```text
+Attempt 1 → wait 1s
+Attempt 2 → wait 2s
+Attempt 3 → wait 4s
+Attempt 4 → stop
+```
+
+Always combine retries with:
+
+* maximum attempts
+* timeout
+* observability
+* clear failure state
+
+---
+
+## Bounded Loops
+
+Every loop should have a termination condition.
+
+Example:
+
+```python
+MAX_RETRIES = 3
+
+attempt = 0
+
+while attempt < MAX_RETRIES:
+    attempt += 1
+
+    # Execute operation
+
+    if success:
+        break
+```
+
+For agent loops, a maximum number of iterations is equally important.
+
+---
+
+# 26. Observability and Debugging
+
+A production agent should be observable.
+
+You should be able to answer:
+
+```text
+What happened?
+Which node failed?
+Which model was called?
+What tools were used?
+How long did each step take?
+How many tokens were consumed?
+How much did the run cost?
+Why did the agent choose this action?
+Where did the final answer come from?
+```
+
+---
+
+## Trace Architecture
+
+```text
+Run
+ │
+ ├── Node: Router
+ │      └── LLM call
+ │
+ ├── Node: Generator
+ │      └── LLM call
+ │
+ ├── Node: Tool
+ │      └── Database query
+ │
+ ├── Node: Evaluator
+ │      └── LLM call
+ │
+ └── Node: Finalizer
+```
+
+---
+
+## Useful Metrics
+
+### Reliability
+
+```text
+Success Rate
+Failure Rate
+Retry Rate
+Timeout Rate
+```
+
+### Performance
+
+```text
+End-to-End Latency
+Node Latency
+Tool Latency
+LLM Latency
+```
+
+### Cost
+
+```text
+Input Tokens
+Output Tokens
+LLM Calls
+Tool Calls
+Estimated Cost
+```
+
+### Agent Behaviour
+
+```text
+Iterations per Run
+Tool Calls per Run
+Failed Tool Calls
+Invalid Tool Calls
+Average Steps
+```
+
+LangSmith can be used for tracing, debugging, evaluation, and comparison of agent/workflow executions.
+
+---
+
+# 27. Evaluation
+
+A production AI system should not be evaluated only by whether the final response “looks good.”
+
+---
+
+## Workflow Metrics
+
+```text
+Task Success Rate
+Execution Success Rate
+Latency
+Cost
+Failure Rate
+```
+
+---
+
+## LLM Metrics
+
+Depending on the application:
+
+```text
+Correctness
+Relevance
+Faithfulness
+Format Compliance
+Groundedness
+```
+
+---
+
+## Agent Metrics
+
+```text
+Goal Completion Rate
+Tool Selection Accuracy
+Tool Argument Accuracy
+Number of Unnecessary Tool Calls
+Average Iterations
+Recovery Success Rate
+```
+
+---
+
+## QA Automation Metrics
+
+For an AI testing platform:
+
+```text
+Test Generation Accuracy
+Requirement Coverage
+Executable Test Rate
+Locator Accuracy
+Self-Healing Success Rate
+False Healing Rate
+Failure Classification Accuracy
+RCA Accuracy
+Duplicate Test Rate
+Execution Success Rate
+```
+
+---
+
+# 28. Multi-Agent Architecture
+
+Multi-agent systems can be useful when responsibilities are genuinely different.
+
+Example:
+
+```text
+                    Supervisor
+                        │
+          ┌─────────────┼─────────────┐
+          ▼             ▼             ▼
+       UI Agent      API Agent      DB Agent
+          │             │             │
+          └─────────────┼─────────────┘
+                        ▼
+                    Evaluator
+                        │
+                        ▼
+                     Report
+```
+
+---
+
+## Avoid Multi-Agent for the Sake of It
+
+Do not create:
+
+```text
+Agent 1
+Agent 2
+Agent 3
+Agent 4
+Agent 5
+Agent 6
+```
+
+just because the architecture looks impressive.
+
+Each agent introduces:
+
+* latency
+* cost
+* state complexity
+* failure modes
+* debugging complexity
+
+A strong single workflow can often outperform an unnecessary multi-agent architecture.
+
+---
+
+# 29. Production Architecture
+
+A mature LangGraph system often looks like:
+
+```text
+                         ┌───────────────┐
+                         │   User/API    │
+                         └───────┬───────┘
+                                 │
+                                 ▼
+                         ┌───────────────┐
+                         │ Authentication│
+                         │ Authorization │
+                         └───────┬───────┘
+                                 │
+                                 ▼
+                         ┌───────────────┐
+                         │     Router    │
+                         └───────┬───────┘
+                                 │
+              ┌──────────────────┼──────────────────┐
+              ▼                  ▼                  ▼
+        Workflow A          Workflow B          Agent
+              │                  │                  │
+              ▼                  ▼                  ▼
+          Tools/API          Retrieval          ToolNode
+              │                  │                  │
+              └──────────────────┼──────────────────┘
+                                 ▼
+                            Evaluator
+                                 │
+                    ┌────────────┴────────────┐
+                    ▼                         ▼
+                 Accept                    Refine
+                    │                         │
+                    ▼                         └──→ Retry
+                  Output
+                    │
+                    ▼
+              Persistence
+                    │
+                    ▼
+             Observability
+```
+
+---
+
+## Production Layers
+
+### Layer 1 — Interface
+
+```text
+REST API
+Web UI
+CLI
+Webhook
+Event
+```
+
+### Layer 2 — Security
+
+```text
+Authentication
+Authorization
+Rate Limiting
+Input Validation
+Secrets
+```
+
+### Layer 3 — Orchestration
+
+```text
+LangGraph
+State
+Nodes
+Edges
+Subgraphs
+```
+
+### Layer 4 — Intelligence
+
+```text
+LLMs
+Retrieval
+Structured Output
+Evaluators
+```
+
+### Layer 5 — Tools
+
+```text
+Databases
+Browser
+APIs
+File Systems
+Cloud Services
+CI/CD
+```
+
+### Layer 6 — Persistence
+
+```text
+Checkpoints
+Memory
+Application Database
+Vector Store
+```
+
+### Layer 7 — Observability
+
+```text
+Tracing
+Logs
+Metrics
+Evaluation
+Alerts
+```
+
+---
+
+# 30. Pattern Selection Guide
 
 ## Which Pattern Should You Use?
 
-| Situation | Recommended Pattern | Why |
-|---|---|---|
-| Fixed sequence of transformations | Prompt chaining | Order is known |
-| Independent tasks | Parallelization | Reduces latency |
-| Input requires specialist handling | Routing | Selects context-specific path |
-| Subtasks must be created dynamically | Orchestrator-worker | Planner can generate work |
-| Output must meet quality criteria | Evaluator-optimizer | Supports iterative refinement |
-| Next actions are unpredictable | Agent | Model can choose actions |
-| LLM needs external capabilities | Agent + tools / ToolNode | Supports action execution |
+| Situation                    | Recommended Pattern | Reason                            |
+| ---------------------------- | ------------------- | --------------------------------- |
+| Fixed sequence               | Prompt chaining     | Execution order is known          |
+| Independent operations       | Parallelization     | Reduces latency                   |
+| Different input categories   | Routing             | Selects specialist                |
+| Dynamic number of subtasks   | Orchestrator-worker | Work is created dynamically       |
+| Quality requires iteration   | Evaluator-optimizer | Feedback improves output          |
+| Unknown next action          | Agent               | Model chooses next action         |
+| External capability required | Agent + tools       | Enables actions                   |
+| Dynamic worker fan-out       | `Send`              | Creates workers from runtime data |
+| State update + navigation    | `Command`           | Combines update and control       |
+| Long-running execution       | Persistence         | Enables recovery/resume           |
+| Sensitive actions            | Interrupt/HITL      | Human approval                    |
+| Reusable complex workflow    | Subgraph            | Encapsulation                     |
+
+---
 
 ## Quick Decision Tree
 
 ```text
-Do you know the execution path in advance?
-│
-├── Yes
-│   │
-│   ├── Do tasks depend on previous outputs?
-│   │   ├── Yes → Prompt Chaining
-│   │   └── No  → Parallelization
-│   │
-│   └── Do different inputs need different specialists?
-│       └── Yes → Routing
-│
-└── No
-    │
-    ├── Can a planner break work into dynamic subtasks?
-    │   └── Yes → Orchestrator-Worker
-    │
-    └── Must the model choose actions/tools dynamically?
-        └── Yes → Agent
+Do you know the execution path?
+
+              ┌───────────────┐
+              │      YES      │
+              └───────┬───────┘
+                      │
+             Do steps depend
+             on previous output?
+                 ┌────┴────┐
+                YES        NO
+                 │          │
+                 ▼          ▼
+             Chaining   Parallelization
+                 │
+                 ▼
+        Do inputs require
+        different specialists?
+                 │
+                YES
+                 ▼
+              Routing
+
+
+              ┌───────────────┐
+              │       NO      │
+              └───────┬───────┘
+                      │
+             Can a planner create
+             dynamic subtasks?
+                 ┌────┴────┐
+                YES        NO
+                 │          │
+                 ▼          ▼
+          Orchestrator    Agent
+             Worker
 ```
 
 ---
 
-# 🏭 Production Design Checklist
+# 31. Common Mistakes and Anti-Patterns
 
-Before moving a graph from experimentation toward production, review the following areas.
+## ❌ 1. Using an Agent for Everything
 
-## State
+Bad:
 
-- [ ] Is state minimal and clearly typed?
-- [ ] Does each node receive the information it actually needs?
-- [ ] Are concurrent updates handled safely?
-- [ ] Are shared collections using appropriate reducers or aggregation logic?
+```text
+Simple 3-step process
+       ↓
+     Agent
+       ↓
+20 unnecessary decisions
+```
 
-## Control Flow
+Better:
 
-- [ ] Does every conditional branch have a valid destination?
-- [ ] Are fallback paths defined?
-- [ ] Are retry loops bounded?
-- [ ] Can the graph terminate from every valid execution path?
-
-## Model Output
-
-- [ ] Are structured schemas used where application logic depends on model output?
-- [ ] Is invalid output handled?
-- [ ] Are prompts narrow enough for the responsibility of each node?
-
-## Tools
-
-- [ ] Are tool permissions limited?
-- [ ] Are tool arguments validated?
-- [ ] Are tool failures represented clearly?
-- [ ] Are dangerous actions protected by approval mechanisms?
-
-## Reliability
-
-- [ ] Are transient failures retried appropriately?
-- [ ] Are timeouts considered?
-- [ ] Is partial progress recoverable?
-- [ ] Is persistence/checkpointing required?
-
-## Observability
-
-- [ ] Can you identify which node failed?
-- [ ] Can you inspect model and tool inputs/outputs where appropriate?
-- [ ] Can you measure latency and cost?
-- [ ] Can you compare different workflow versions?
+```text
+Known process
+    ↓
+Workflow
+```
 
 ---
 
-# ⚠️ Common Mistakes and Anti-Patterns
+## ❌ 2. One Giant Node
 
-## 1. Using an Agent for a Fully Deterministic Process
+Bad:
 
-If the path is already known, unnecessary autonomy can add latency, cost, and debugging complexity.
+```python
+def everything(state):
+    ...
+```
 
-## 2. Putting Everything in One Giant Node
+Better:
 
-Large nodes are difficult to test and observe. Separate responsibilities into meaningful units.
-
-## 3. Returning Free-Form Text for Critical Routing
-
-If code depends on a route decision, use constrained structured output where possible.
-
-## 4. Creating Unbounded Loops
-
-Evaluator, retry, and agent loops need explicit stopping conditions.
-
-## 5. Parallelizing Dependent Work
-
-Only fan out tasks that can execute independently.
-
-## 6. Giving Agents Too Many Tools
-
-More tools do not automatically produce better agents. A focused toolset makes decisions easier to reason about and secure.
-
-## 7. Ignoring Failure Paths
-
-A successful demo path is not a complete production design. Explicitly model tool errors, invalid outputs, timeouts, and recovery.
+```text
+retrieve
+   ↓
+classify
+   ↓
+generate
+   ↓
+validate
+   ↓
+report
+```
 
 ---
 
-# 🧪 A Practical QA Automation Interpretation
+## ❌ 3. Free-Form Routing
 
-These workflow patterns can be mapped to AI-assisted quality engineering.
+Bad:
+
+```text
+"Maybe this should go to API testing."
+```
+
+Better:
+
+```json
+{
+  "route": "api"
+}
+```
+
+---
+
+## ❌ 4. Unbounded Agent Loops
+
+Bad:
+
+```python
+while True:
+    agent()
+```
+
+Better:
+
+```text
+Maximum iterations
++
+Termination condition
++
+Failure fallback
+```
+
+---
+
+## ❌ 5. Unsafe Tool Execution
+
+Never allow model output to directly become arbitrary system commands.
+
+Bad:
+
+```text
+LLM
+ ↓
+arbitrary shell command
+ ↓
+production
+```
+
+Better:
+
+```text
+LLM
+ ↓
+validated tool call
+ ↓
+permission check
+ ↓
+approval if required
+ ↓
+execution
+```
+
+---
+
+## ❌ 6. Too Many Tools
+
+More tools do not automatically create a better agent.
+
+Prefer:
+
+```text
+Focused Tool Set
+```
+
+over:
+
+```text
+50 vaguely described tools
+```
+
+---
+
+## ❌ 7. Parallelizing Dependent Work
+
+Bad:
+
+```text
+A ─┐
+B ─┼→ C
+C requires A
+```
+
+Better:
+
+```text
+A → C
+B → independent path
+```
+
+---
+
+## ❌ 8. Ignoring State Design
+
+A poorly designed state can become the biggest source of complexity.
+
+Avoid:
+
+```text
+Huge mutable state containing everything
+```
+
+Prefer:
+
+```text
+Minimal typed state
++
+clear ownership
++
+reducers where necessary
+```
+
+---
+
+## ❌ 9. No Failure Path
+
+Every important node should answer:
+
+```text
+What happens if this fails?
+```
+
+---
+
+## ❌ 10. No Observability
+
+If you cannot see:
+
+```text
+node → model → tool → result
+```
+
+debugging production agents becomes extremely difficult.
+
+---
+
+# 32. Practical QA Automation Architecture
+
+LangGraph maps naturally to AI-assisted Quality Engineering.
+
+Consider a system that converts requirements into executable automation.
+
+---
+
+## Requirement-to-Test Workflow
 
 ```text
 Requirement
-    ↓
-Routing
-    ├── UI Test Generation
-    ├── API Test Generation
-    └── Data Validation
-            ↓
-      Parallel Execution
-            ↓
-      Result Aggregation
-            ↓
-      Evaluator
-       ├── Accept → Report
-       └── Improve → Regenerate / Refine
+     ↓
+Requirement Parser
+     ↓
+Router
+ ┌───┼───────────┐
+ ▼   ▼           ▼
+UI  API       Database
+ │   │           │
+ └───┼───────────┘
+     ▼
+Test Generation
+     ↓
+Validation
+     ↓
+Execution
+     ↓
+Evaluation
+     ↓
+Report
 ```
 
-A more autonomous architecture can use an agent when the next diagnostic action is unknown:
+---
+
+## Parallel Test Generation
+
+```text
+                 Requirement
+                      ↓
+                Test Planner
+                      ↓
+       ┌──────────────┼──────────────┐
+       ▼              ▼              ▼
+    UI Tests       API Tests       DB Tests
+       │              │              │
+       └──────────────┼──────────────┘
+                      ▼
+                   Validator
+                      ↓
+                  Test Suite
+```
+
+---
+
+# 32.1 AI Test Generation Agent
+
+A test-generation agent could have:
+
+```text
+Tools
+├── read_requirement
+├── search_existing_tests
+├── inspect_application
+├── inspect_dom
+├── inspect_api
+├── query_database_schema
+├── generate_test
+├── validate_test
+└── save_test
+```
+
+The agent can determine which evidence is required.
+
+---
+
+# 32.2 Self-Healing Locator Agent
+
+A self-healing system is a strong example of where agentic behaviour can provide value.
 
 ```text
 Test Failure
      ↓
-RCA Agent
+Failure Classifier
      ↓
-Choose Action
- ┌────┼─────────┐
- ↓    ↓         ↓
-Logs  Retry   Inspect Locator
- ↓    ↓         ↓
- └────┼─────────┘
-      ↓
-Evaluate Evidence
-      ↓
-Final Diagnosis
+Locator Failure?
+     ↓
+     YES
+      │
+      ▼
+Locator Agent
+      │
+      ├── Inspect DOM
+      ├── Inspect Previous Locator
+      ├── Inspect Attributes
+      ├── Search Similar Elements
+      ├── Compare Historical Locators
+      └── Generate Candidate
+             ↓
+          Evaluate
+             ↓
+       Confidence High?
+        ┌────┴─────┐
+       YES         NO
+        │           │
+        ▼           ▼
+     Repair      Human Review
 ```
-
-The pattern should be selected based on the predictability of the task—not simply on whether an LLM is available.
 
 ---
 
-# 📌 Final Takeaway
+# 32.3 Failure RCA Agent
 
-The central design decision is simple:
+Root-cause analysis is another task where the next diagnostic action may not be known in advance.
 
-> **Use explicit workflows when you can predict the process. Use agentic autonomy when you cannot predict the process and dynamic decisions provide real value.**
+```text
+Test Failure
+      ↓
+RCA Agent
+      ↓
+Choose Investigation
+ ┌────┼───────────┐
+ ▼    ▼           ▼
+Logs Locator    API
+ ▼    ▼           ▼
+Evidence Collection
+       ↓
+ Evidence Evaluation
+       ↓
+ Root Cause
+       ↓
+ Recommendation
+```
 
-Prompt chaining, parallelization, routing, orchestrator-worker, evaluator-optimizer, and agents are complementary patterns. A production system can combine them:
+---
+
+## Possible Tools
+
+```text
+get_test_logs()
+get_browser_trace()
+inspect_dom()
+get_network_logs()
+query_database()
+get_api_response()
+compare_previous_run()
+get_git_diff()
+search_known_failures()
+```
+
+The agent should not automatically execute every available tool.
+
+It should use only the tools required by the investigation.
+
+---
+
+# 32.4 AI Test Execution Architecture
+
+```text
+Test Request
+     ↓
+Execution Planner
+     ↓
+ ┌───┼────┬────┐
+ ▼   ▼    ▼    ▼
+UI  API   DB  Contract
+ │   │    │    │
+ └───┼────┴────┘
+     ▼
+Result Aggregator
+     ↓
+Failure Classifier
+     ↓
+ ┌───┴───────────┐
+ ▼               ▼
+PASS            FAIL
+                 │
+                 ▼
+              RCA Agent
+                 │
+                 ▼
+             Evaluator
+                 │
+          ┌──────┴──────┐
+          ▼             ▼
+       Recover       Report
+```
+
+---
+
+# 32.5 Mapping LangGraph Patterns to QA
+
+| QA Requirement                        | LangGraph Pattern   |
+| ------------------------------------- | ------------------- |
+| Requirement → test → validation       | Prompt chaining     |
+| UI + API + DB analysis                | Parallelization     |
+| UI vs API vs DB requirement           | Routing             |
+| Generate unknown number of test cases | Orchestrator-worker |
+| Improve generated test                | Evaluator-optimizer |
+| Diagnose unknown failure              | Agent               |
+| Run multiple diagnostic tools         | ToolNode            |
+| Dynamic test workers                  | `Send`              |
+| Approval before changing test         | Interrupt           |
+| Resume long execution                 | Persistence         |
+| Reusable test-generation module       | Subgraph            |
+
+---
+
+# 33. End-to-End Example
+
+The following example demonstrates a simplified requirement-to-test workflow.
+
+```text
+                   Requirement
+                        ↓
+                    Classifier
+                        ↓
+              ┌─────────┴─────────┐
+              ▼                   ▼
+          UI Requirement      API Requirement
+              │                   │
+              ▼                   ▼
+        Test Generator       Test Generator
+              │                   │
+              └─────────┬─────────┘
+                        ▼
+                    Validator
+                        ↓
+                 Valid Test?
+                 ┌──────┴──────┐
+                YES            NO
+                 │              │
+                 ▼              ▼
+              Save         Regenerate
+                 │              │
+                 ▼              └──────→ Validator
+               Report
+```
+
+---
+
+## Example State
+
+```python
+from typing_extensions import TypedDict
+
+
+class QAState(TypedDict):
+    requirement: str
+    route: str
+    test_case: str
+    validation_result: str
+    attempts: int
+    final_output: str
+```
+
+---
+
+## Classifier
+
+```python
+from pydantic import BaseModel
+from typing_extensions import Literal
+
+
+class Route(BaseModel):
+    route: Literal["ui", "api"]
+
+
+router = llm.with_structured_output(Route)
+
+
+def classify(state: QAState):
+    result = router.invoke(
+        f"""
+        Determine whether this requirement
+        is primarily UI or API testing:
+
+        {state['requirement']}
+        """
+    )
+
+    return {
+        "route": result.route
+    }
+```
+
+---
+
+## UI Generator
+
+```python
+def generate_ui_test(state: QAState):
+    result = llm.invoke(
+        f"""
+        Generate a Playwright test
+        for this requirement:
+
+        {state['requirement']}
+        """
+    )
+
+    return {
+        "test_case": result.content,
+        "attempts": state.get("attempts", 0) + 1
+    }
+```
+
+---
+
+## API Generator
+
+```python
+def generate_api_test(state: QAState):
+    result = llm.invoke(
+        f"""
+        Generate an API test
+        for this requirement:
+
+        {state['requirement']}
+        """
+    )
+
+    return {
+        "test_case": result.content,
+        "attempts": state.get("attempts", 0) + 1
+    }
+```
+
+---
+
+## Validator
+
+```python
+def validate(state: QAState):
+    result = llm.invoke(
+        f"""
+        Validate this generated test:
+
+        {state['test_case']}
+
+        Check:
+        - requirement coverage
+        - syntax
+        - testability
+        - missing assertions
+        - obvious locator/API problems
+        """
+    )
+
+    return {
+        "validation_result": result.content
+    }
+```
+
+---
+
+## Routing
+
+```python
+def route_generator(state: QAState):
+    return state["route"]
+```
+
+---
+
+## Build Graph
+
+```python
+from langgraph.graph import (
+    StateGraph,
+    START,
+    END
+)
+
+
+builder = StateGraph(QAState)
+
+builder.add_node("classify", classify)
+builder.add_node("generate_ui", generate_ui_test)
+builder.add_node("generate_api", generate_api_test)
+builder.add_node("validate", validate)
+
+builder.add_edge(
+    START,
+    "classify"
+)
+
+builder.add_conditional_edges(
+    "classify",
+    route_generator,
+    {
+        "ui": "generate_ui",
+        "api": "generate_api",
+    }
+)
+
+builder.add_edge(
+    "generate_ui",
+    "validate"
+)
+
+builder.add_edge(
+    "generate_api",
+    "validate"
+)
+
+builder.add_edge(
+    "validate",
+    END
+)
+
+graph = builder.compile()
+```
+
+---
+
+## Invoke
+
+```python
+result = graph.invoke(
+    {
+        "requirement": (
+            "Verify that a customer can select "
+            "a broadband appointment."
+        ),
+        "attempts": 0
+    }
+)
+
+print(result)
+```
+
+---
+
+# 34. Production Checklist
+
+Before moving a LangGraph application from prototype to production, review the following.
+
+---
+
+## 🧠 State
+
+* [ ] State is typed.
+* [ ] State is minimal.
+* [ ] Each node receives the information it actually needs.
+* [ ] Reducers are defined where concurrent writes occur.
+* [ ] Temporary data is not persisted unnecessarily.
+* [ ] Sensitive information is handled appropriately.
+
+---
+
+## 🔀 Control Flow
+
+* [ ] Every node has a clear responsibility.
+* [ ] Every conditional route has a valid destination.
+* [ ] Every loop has a termination condition.
+* [ ] Maximum agent iterations are defined.
+* [ ] Failure paths are explicitly modeled.
+* [ ] Unexpected routes have fallbacks.
+
+---
+
+## 🤖 LLM
+
+* [ ] Model provider is configurable.
+* [ ] Credentials are stored securely.
+* [ ] Structured output is used where appropriate.
+* [ ] Prompts have narrow responsibilities.
+* [ ] Model failures are handled.
+* [ ] Output validation exists.
+
+---
+
+## 🧰 Tools
+
+* [ ] Tools have clear descriptions.
+* [ ] Tool arguments are validated.
+* [ ] Permissions are restricted.
+* [ ] Dangerous actions require approval.
+* [ ] Tool failures are represented.
+* [ ] Tool calls have timeouts.
+* [ ] Arbitrary code execution is avoided.
+
+---
+
+## 🔄 Reliability
+
+* [ ] Transient errors can be retried.
+* [ ] Retry counts are bounded.
+* [ ] Timeouts exist.
+* [ ] Partial progress can be recovered where required.
+* [ ] Persistence/checkpointing is configured where needed.
+* [ ] External dependencies have fallback behaviour.
+
+---
+
+## 👤 Human-in-the-Loop
+
+* [ ] High-risk operations require approval.
+* [ ] Interrupt/resume behaviour is tested.
+* [ ] Rejected actions have a defined path.
+* [ ] Approval decisions are auditable.
+
+---
+
+## 📊 Observability
+
+* [ ] Graph runs can be traced.
+* [ ] Node execution is visible.
+* [ ] Tool calls are observable.
+* [ ] Model latency is measured.
+* [ ] Token/cost usage is measured.
+* [ ] Failures generate useful diagnostics.
+* [ ] Production alerts exist.
+
+---
+
+## 🧪 Evaluation
+
+* [ ] Golden test cases exist.
+* [ ] Workflow success rate is measured.
+* [ ] Agent behaviour is evaluated.
+* [ ] Tool selection is evaluated.
+* [ ] Regression tests exist.
+* [ ] Model changes are evaluated before rollout.
+* [ ] Prompt changes are tracked.
+
+---
+
+## 🔐 Security
+
+* [ ] Authentication exists.
+* [ ] Authorization is enforced.
+* [ ] Secrets are not stored in prompts.
+* [ ] Tool permissions are restricted.
+* [ ] User input is treated as untrusted.
+* [ ] Prompt injection risks are considered.
+* [ ] External side effects are controlled.
+* [ ] Sensitive state is protected.
+
+---
+
+# 35. Final Takeaway
+
+The most important LangGraph design decision is not:
+
+> "Should I build an agent?"
+
+It is:
+
+> **"How much autonomy does this problem actually require?"**
+
+Start with the simplest architecture that solves the problem.
+
+```text
+Known Process
+     ↓
+Workflow
+```
+
+If independent work exists:
+
+```text
+Workflow
+   ↓
+Parallelization
+```
+
+If different inputs need different paths:
+
+```text
+Workflow
+   ↓
+Routing
+```
+
+If the number of tasks is dynamic:
+
+```text
+Orchestrator
+   ↓
+Workers
+```
+
+If quality requires iteration:
+
+```text
+Generate
+   ↓
+Evaluate
+   ↓
+Improve
+```
+
+If the next action cannot be predicted:
+
+```text
+Agent
+   ↓
+Tool
+   ↓
+Observe
+   ↓
+Decide
+```
+
+And for production:
+
+```text
+                     ┌───────────────┐
+                     │     Input     │
+                     └───────┬───────┘
+                             ↓
+                         Security
+                             ↓
+                          Router
+                             ↓
+                       Orchestrator
+                             ↓
+                    ┌────────┼────────┐
+                    ▼        ▼        ▼
+                 Worker    Worker    Agent
+                    │        │        │
+                    └────────┼────────┘
+                             ▼
+                         Evaluator
+                             ↓
+                     ┌───────┴───────┐
+                     ▼               ▼
+                  Accept           Refine
+                     │               │
+                     ▼               └────→ Retry
+                   Output
+                     ↓
+                Persistence
+                     ↓
+               Observability
+                     ↓
+                  Metrics
+```
+
+## 🏆 The Practical Rule
+
+> **Use deterministic workflows wherever the process is known.**
+>
+> **Use dynamic routing where decisions are required.**
+>
+> **Use parallelization where work is independent.**
+>
+> **Use orchestrator-worker when work must be dynamically decomposed.**
+>
+> **Use evaluator-optimizer when quality requires iteration.**
+>
+> **Use agents when the next action genuinely cannot be predetermined.**
+>
+> **Use persistence when execution must survive interruptions or failures.**
+>
+> **Use human approval when autonomous actions have meaningful consequences.**
+
+The strongest LangGraph systems are rarely built from a single pattern.
+
+They combine patterns deliberately:
 
 ```text
 Router
-  ↓
+   ↓
 Orchestrator
-  ↓
-Parallel Workers
-  ↓
+   ↓
+Dynamic Workers
+   ↓
+Parallel Execution
+   ↓
 Evaluator
-  ↓
+   ↓
 Agentic Recovery
-  ↓
+   ↓
+Human Approval
+   ↓
 Final Result
 ```
 
-Choose the smallest amount of autonomy that solves the problem effectively. Start with clear state, focused nodes, explicit transitions, bounded loops, and strong observability. Add dynamic agent behaviour only where it genuinely improves the system.
+The goal is not maximum autonomy.
+
+The goal is **controlled intelligence**:
+
+```text
+LLM Intelligence
+       +
+Explicit State
+       +
+Deterministic Control
+       +
+Safe Tools
+       +
+Bounded Autonomy
+       +
+Persistence
+       +
+Observability
+       +
+Evaluation
+       =
+Production-Ready Agentic System
+```
+
+---
+
+## 🚀 LangGraph for AI-Powered Quality Engineering
+
+For AI-assisted QA platforms, LangGraph provides a natural orchestration layer for systems such as:
+
+```text
+Requirement Intelligence
+        ↓
+Test Design
+        ↓
+Test Generation
+        ↓
+Test Validation
+        ↓
+Test Execution
+        ↓
+Failure Analysis
+        ↓
+Root Cause Analysis
+        ↓
+Self-Healing
+        ↓
+Evaluation
+        ↓
+Release Risk
+```
+
+The key is to keep deterministic automation deterministic and use agentic reasoning only where it provides measurable value.
+
+That is the difference between:
+
+```text
+AI added to automation
+```
+
+and:
+
+```text
+An intelligent, observable,
+controlled Quality Engineering system.
+```
+
+---
+
+<img width="1536" height="1024" alt="LangGraph Production Architecture" src="https://github.com/user-attachments/assets/4e6560d5-a6d4-497c-bb42-8d2956a97730" />
+
+---
+
+## 📖 Further Reading
+
+* LangChain documentation index: `https://docs.langchain.com/llms.txt`
+* LangGraph documentation: `https://docs.langchain.com/oss/python/langgraph`
+* LangChain documentation: `https://docs.langchain.com/oss/python/langchain`
+
+> **Documentation note:** LangGraph and LangChain APIs evolve rapidly. Treat the examples in this guide as architectural references and verify package versions and API signatures against the current official documentation before using them in production.
